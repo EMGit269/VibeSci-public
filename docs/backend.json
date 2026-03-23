@@ -1,0 +1,211 @@
+
+{
+  "entities": {
+    "Project": {
+      "title": "Project",
+      "type": "object",
+      "description": "Represents a high-level research project containing multiple tasks.",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "planningMarkdown": { "type": "string" },
+        "analysisResult": {
+          "type": "object",
+          "properties": {
+            "errors": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "step": { "type": "string" },
+                  "explanation": { "type": "string" }
+                }
+              }
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "step": { "type": "string" },
+                  "explanation": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "ignoredErrorIndices": { "type": "array", "items": { "type": "integer" } },
+        "ignoredWarningIndices": { "type": "array", "items": { "type": "integer" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "description", "createdAt"]
+    },
+    "Task": {
+      "title": "Task",
+      "type": "object",
+      "description": "A specific research problem or milestone within a project.",
+      "properties": {
+        "id": { "type": "string" },
+        "projectId": { "type": "string" },
+        "name": { "type": "string" },
+        "problemDescription": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "projectId", "name", "problemDescription", "createdAt"]
+    },
+    "Method": {
+      "title": "Method",
+      "type": "object",
+      "description": "A technical solution or approach to solve a task.",
+      "properties": {
+        "id": { "type": "string" },
+        "taskId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "taskId", "name", "description"]
+    },
+    "CodeSnippet": {
+      "title": "CodeSnippet",
+      "type": "object",
+      "description": "An implementation version of a research method.",
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string" },
+        "purpose": { "type": "string" },
+        "code": { "type": "string" },
+        "notesAndTradeoffs": { "type": "string" },
+        "documentation": { "type": "string" },
+        "developerComments": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "version", "purpose", "code", "notesAndTradeoffs", "createdAt"]
+    },
+    "ChatSession": {
+      "title": "ChatSession",
+      "type": "object",
+      "description": "A persistent AI assistant conversation session.",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": { "type": "string", "enum": ["user", "assistant"] },
+              "content": { "type": "string" }
+            }
+          }
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "messages", "updatedAt"]
+    },
+    "AIModelConfig": {
+      "title": "AIModelConfig",
+      "type": "object",
+      "description": "Custom AI model configuration for OpenAI-compatible providers.",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "modelId": { "type": "string" },
+        "apiKey": { "type": "string" },
+        "baseUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "modelId", "apiKey", "createdAt"]
+    },
+    "KnowledgeSource": {
+      "title": "KnowledgeSource",
+      "type": "object",
+      "description": "A document uploaded to the knowledge atlas.",
+      "properties": {
+        "id": { "type": "string" },
+        "fileName": { "type": "string" },
+        "fileType": { "type": "string" },
+        "totalChunks": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "graphData": {
+          "type": "object",
+          "properties": {
+            "nodes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": { "type": "string" },
+                  "label": { "type": "string" },
+                  "type": { "type": "string" }
+                }
+              }
+            },
+            "edges": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "source": { "type": "string" },
+                  "target": { "type": "string" },
+                  "label": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": ["id", "fileName", "fileType", "totalChunks", "createdAt"]
+    },
+    "KnowledgeChunk": {
+      "title": "KnowledgeChunk",
+      "type": "object",
+      "description": "A sliced piece of text from a knowledge source.",
+      "properties": {
+        "id": { "type": "string" },
+        "sourceId": { "type": "string" },
+        "content": { "type": "string" },
+        "index": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "sourceId", "content", "index", "createdAt"]
+    }
+  },
+  "auth": {
+    "providers": ["password", "anonymous"]
+  },
+  "firestore": {
+    "/users/{userId}/projects/{projectId}": {
+      "schema": { "$ref": "#/backend/entities/Project" },
+      "description": "Collection of research projects owned by the user."
+    },
+    "/users/{userId}/projects/{projectId}/tasks/{taskId}": {
+      "schema": { "$ref": "#/backend/entities/Task" },
+      "description": "Sub-collection of tasks for a project."
+    },
+    "/users/{userId}/projects/{projectId}/tasks/{taskId}/methods/{methodId}": {
+      "schema": { "$ref": "#/backend/entities/Method" },
+      "description": "Sub-collection of solution methods for a task."
+    },
+    "/users/{userId}/projects/{projectId}/tasks/{taskId}/methods/{methodId}/codeSnippets/{snippetId}": {
+      "schema": { "$ref": "#/backend/entities/CodeSnippet" },
+      "description": "Sub-collection of code implementation versions for a method."
+    },
+    "/users/{userId}/chatSessions/{sessionId}": {
+      "schema": { "$ref": "#/backend/entities/ChatSession" },
+      "description": "Persistent chat sessions for the user."
+    },
+    "/users/{userId}/aiModelConfigs/{modelId}": {
+      "schema": { "$ref": "#/backend/entities/AIModelConfig" },
+      "description": "Custom AI model library for the user."
+    },
+    "/users/{userId}/knowledgeSources/{sourceId}": {
+      "schema": { "$ref": "#/backend/entities/KnowledgeSource" },
+      "description": "Uploaded knowledge documents."
+    },
+    "/users/{userId}/knowledgeSources/{sourceId}/chunks/{chunkId}": {
+      "schema": { "$ref": "#/backend/entities/KnowledgeChunk" },
+      "description": "Sliced text chunks for a document."
+    }
+  }
+}

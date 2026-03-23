@@ -1,0 +1,23 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 辅助函数：校验用户是否已登录
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // 辅助函数：校验是否为数据所有者
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // 核心权限规则：用户私有数据分区
+    match /users/{userId}/{allPaths=**} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // 强制规则重新部署标识：2024-05-22-recursive-v4
+  }
+}
