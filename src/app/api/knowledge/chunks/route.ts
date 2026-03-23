@@ -1,25 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { initializeFirebase } from '@/firebase';
+import { initializeFirebaseServer } from '@/firebase/server';
 import { KnowledgeChunk } from '@/lib/types';
-import { collection, addDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, orderBy } from 'firebase/firestore';
 
 export async function GET(req: NextRequest) {
   try {
-    const { firestore } = initializeFirebase();
-    const knowledgeChunksRef = collection(firestore, 'knowledgeChunks');
+    const { firestore } = await initializeFirebaseServer();
+    const userId = req.headers.get('x-user-id');
+    
+    if (!userId) {
+      return NextResponse.json({ error: 'User ID is required' }, { status: 401 });
+    }
     
     // Check if sourceId is provided in query params
     const sourceId = req.nextUrl.searchParams.get('sourceId');
     
-    let querySnapshot;
-    if (sourceId) {
-      // Get chunks for specific source
-      const q = query(knowledgeChunksRef, where('sourceId', '==', sourceId));
-      querySnapshot = await getDocs(q);
-    } else {
-      // Get all chunks
-      querySnapshot = await getDocs(knowledgeChunksRef);
+    if (!sourceId) {
+      return NextResponse.json({ error: 'Source ID is required' }, { status: 400 });
     }
+    
+    // Get chunks for specific source
+    const chunksRef = collection(firestore, 'users', userId, 'knowledgeSources', sourceId, 'chunks');
+    const q = query(chunksRef, orderBy('index', 'asc'));
+    const querySnapshot = await getDocs(q);
 
     const knowledgeChunks: KnowledgeChunk[] = querySnapshot.docs.map(doc => ({
       id: doc.id,
@@ -35,8 +38,12 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { firestore } = initializeFirebase();
-    const knowledgeChunksRef = collection(firestore, 'knowledgeChunks');
+    const { firestore } = await initializeFirebaseServer();
+    const userId = req.headers.get('x-user-id');
+    
+    if (!userId) {
+      return NextResponse.json({ error: 'User ID is required' }, { status: 401 });
+    }
     
     const knowledgeChunkData = await req.json();
     
@@ -51,7 +58,8 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString()
     };
 
-    const docRef = await addDoc(knowledgeChunksRef, newKnowledgeChunk);
+    const chunksRef = collection(firestore, 'users', userId, 'knowledgeSources', knowledgeChunkData.sourceId, 'chunks');
+    const docRef = await addDoc(chunksRef, newKnowledgeChunk);
     
     return NextResponse.json({
       id: docRef.id,

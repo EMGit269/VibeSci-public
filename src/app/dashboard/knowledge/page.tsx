@@ -96,12 +96,18 @@ export default function KnowledgePage() {
 
   const selectedSource = sources?.find(s => s.id === selectedSourceId);
 
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
+
   const graphDataWithPositions = useMemo(() => {
     if (!selectedSource?.graphData) return null;
     const { nodes, edges } = selectedSource.graphData;
     const positionedNodes = calculateNodePositions(nodes, 800, 500);
     return { nodes: positionedNodes, edges };
   }, [selectedSource]);
+
+  const handleNodeClick = (nodeId: string) => {
+    setSelectedNode(selectedNode === nodeId ? null : nodeId);
+  };
 
   const handleAskSai = (source: KnowledgeSource) => {
     router.push(`/dashboard/chat?sourceId=${source.id}&sourceName=${encodeURIComponent(source.fileName)}`);
@@ -304,60 +310,134 @@ export default function KnowledgePage() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <div className="relative h-[500px] w-full bg-slate-50/50 dark:bg-slate-950/20 overflow-hidden border-t">
+                  <ScrollArea className="h-[500px] w-full bg-slate-50/50 dark:bg-slate-950/20 border-t">
+                    <div className="min-w-[800px] h-[500px] relative">
                     {selectedSource.graphData && graphDataWithPositions ? (
-                      <svg width="100%" height="100%" viewBox="0 0 800 500" className="absolute inset-0">
-                        {/* 连线层 */}
-                        <g>
-                          {graphDataWithPositions.edges.map((edge, idx) => {
-                            const sourceNode = graphDataWithPositions.nodes.find(n => n.id === edge.source);
-                            const targetNode = graphDataWithPositions.nodes.find(n => n.id === edge.target);
-                            if (!sourceNode || !targetNode) return null;
-                            return (
-                              <line 
-                                key={`edge-${idx}`}
-                                x1={sourceNode.x} y1={sourceNode.y}
-                                x2={targetNode.x} y2={targetNode.y}
-                                stroke="hsl(var(--primary))"
-                                strokeWidth="1"
-                                strokeDasharray="4 2"
-                                opacity="0.2"
-                              />
-                            );
-                          })}
-                        </g>
-                        {/* 节点层 */}
-                        <g>
-                          {graphDataWithPositions.nodes.map((node, idx) => (
-                            <g key={`node-${idx}`} transform={`translate(${node.x}, ${node.y})`}>
-                              <circle 
-                                r="12" 
-                                className={cn(
-                                  "fill-white stroke-2 shadow-sm",
-                                  node.type === 'Concept' ? "stroke-indigo-500" : 
-                                  node.type === 'Method' ? "stroke-emerald-500" : 
-                                  "stroke-orange-500"
-                                )} 
-                              />
-                              <text 
-                                dy="25" 
-                                textAnchor="middle" 
-                                className="text-[10px] font-bold fill-slate-600 dark:fill-slate-400 select-none"
-                              >
-                                {node.label}
-                              </text>
-                              <circle 
-                                r="4" 
-                                className={cn(
-                                  node.type === 'Concept' ? "fill-indigo-500" : 
-                                  node.type === 'Method' ? "fill-emerald-500" : 
-                                  "fill-orange-500"
-                                )} 
-                              />
-                            </g>
-                          ))}
-                        </g>
-                      </svg>
+                      <div className="relative w-full h-full">
+                        <svg width="100%" height="100%" viewBox="0 0 800 500" className="absolute inset-0">
+                          {/* 连线层 */}
+                          <g>
+                            {graphDataWithPositions.edges.map((edge, idx) => {
+                              const sourceNode = graphDataWithPositions.nodes.find(n => n.id === edge.source);
+                              const targetNode = graphDataWithPositions.nodes.find(n => n.id === edge.target);
+                              if (!sourceNode || !targetNode) return null;
+                              const isSelected = selectedNode === edge.source || selectedNode === edge.target;
+                              return (
+                                <g key={`edge-${idx}`}>
+                                  <line 
+                                    x1={sourceNode.x} y1={sourceNode.y}
+                                    x2={targetNode.x} y2={targetNode.y}
+                                    stroke={isSelected ? "hsl(var(--primary))" : "hsl(var(--primary))"}
+                                    strokeWidth={isSelected ? "2" : "1"}
+                                    strokeDasharray={isSelected ? "none" : "4 2"}
+                                    opacity={isSelected ? "0.6" : "0.2"}
+                                  />
+                                  <text 
+                                    x={(sourceNode.x + targetNode.x) / 2}
+                                    y={(sourceNode.y + targetNode.y) / 2 - 5}
+                                    textAnchor="middle"
+                                    className={cn(
+                                      "text-[8px] font-medium select-none",
+                                      isSelected ? "fill-primary" : "fill-slate-500"
+                                    )}
+                                  >
+                                    {edge.label}
+                                  </text>
+                                </g>
+                              );
+                            })}
+                          </g>
+                          {/* 节点层 */}
+                          <g>
+                            {graphDataWithPositions.nodes.map((node, idx) => {
+                              const isSelected = selectedNode === node.id;
+                              const nodeRadius = isSelected ? 16 : 12;
+                              const nodeStrokeWidth = isSelected ? 3 : 2;
+                              const nodeColor = 
+                                node.type === 'Concept' ? "indigo-500" : 
+                                node.type === 'Method' ? "emerald-500" : 
+                                node.type === 'Result' ? "blue-500" :
+                                node.type === 'Tool' ? "amber-500" :
+                                node.type === 'Researcher' ? "pink-500" :
+                                node.type === 'Theory' ? "purple-500" :
+                                "orange-500";
+                              
+                              return (
+                                <g 
+                                  key={`node-${idx}`} 
+                                  transform={`translate(${node.x}, ${node.y})`}
+                                  onClick={() => handleNodeClick(node.id)}
+                                  className="cursor-pointer"
+                                >
+                                  <circle 
+                                    r={nodeRadius} 
+                                    className={cn(
+                                      "fill-white shadow-sm transition-all duration-300",
+                                      isSelected ? `stroke-${nodeColor} stroke-${nodeStrokeWidth} ring-2 ring-${nodeColor}/30` : 
+                                      `stroke-${nodeColor} stroke-${nodeStrokeWidth}`
+                                    )} 
+                                  />
+                                  <circle 
+                                    r={isSelected ? 6 : 4} 
+                                    className={`fill-${nodeColor}`} 
+                                  />
+                                  <text 
+                                    dy={isSelected ? 30 : 25} 
+                                    textAnchor="middle" 
+                                    className={cn(
+                                      "text-[10px] font-bold select-none transition-all duration-300",
+                                      isSelected ? `fill-${nodeColor}` : "fill-slate-600 dark:fill-slate-400"
+                                    )}
+                                  >
+                                    {node.label}
+                                  </text>
+                                  {isSelected && (
+                                    <text 
+                                      dy={isSelected ? 42 : 37} 
+                                      textAnchor="middle" 
+                                      className={`text-[8px] font-medium fill-slate-500`}
+                                    >
+                                      {node.type}
+                                    </text>
+                                  )}
+                                </g>
+                              );
+                            })}
+                          </g>
+                        </svg>
+                        {selectedNode && graphDataWithPositions && (
+                          <div className="absolute top-4 right-4 bg-card border-2 border-slate-100 dark:border-slate-800 rounded-xl p-4 shadow-lg max-w-[200px] animate-in fade-in slide-in-from-top-4 duration-300">
+                            {(() => {
+                              const node = graphDataWithPositions.nodes.find(n => n.id === selectedNode);
+                              if (!node) return null;
+                              const relatedEdges = graphDataWithPositions.edges.filter(
+                                e => e.source === selectedNode || e.target === selectedNode
+                              );
+                              return (
+                                <div className="space-y-2">
+                                  <h4 className="text-sm font-bold">{node.label}</h4>
+                                  <p className="text-xs text-muted-foreground">Type: {node.type}</p>
+                                  {relatedEdges.length > 0 && (
+                                    <div className="space-y-1 mt-2">
+                                      <p className="text-xs font-medium">Relationships:</p>
+                                      {relatedEdges.map((edge, idx) => {
+                                        const relatedNodeId = edge.source === selectedNode ? edge.target : edge.source;
+                                        const relatedNode = graphDataWithPositions.nodes.find(n => n.id === relatedNodeId);
+                                        return (
+                                          <div key={idx} className="text-xs">
+                                            {edge.source === selectedNode ? '→' : '←'} {edge.label}
+                                            {relatedNode && `: ${relatedNode.label}`}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-12">
                         <div className="relative mb-4">
@@ -368,7 +448,8 @@ export default function KnowledgePage() {
                         <p className="text-xs text-slate-400 max-w-xs mt-1">点击上方“生成知识图谱”按钮，AI 将分析该文档并提取核心概念关联图。</p>
                       </div>
                     )}
-                  </div>
+                    </div>
+                  </ScrollArea>
                 </CardContent>
               </Card>
 

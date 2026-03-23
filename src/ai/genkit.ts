@@ -1,6 +1,5 @@
 import { genkit } from 'genkit';
 import { googleAI } from '@genkit-ai/google-genai';
-import { openAICompatible } from '@genkit-ai/compat-oai';
 import { cookies } from 'next/headers';
 
 /**
@@ -13,7 +12,6 @@ const defaultApiKey = process.env.GEMINI_API_KEY;
 export const ai = genkit({
   plugins: [
     googleAI({ apiKey: defaultApiKey }), // 设置默认apiKey
-    // OpenAI 兼容插件将在运行时根据用户配置动态初始化
   ],
   model: 'googleai/gemini-3.1-flash-lite-preview',
 });
@@ -33,10 +31,10 @@ export async function getAiParams() {
     const modelId = cookieStore.get('custom-model-id')?.value;
 
     if (apiKey && modelId) {
-      // 对于自定义模型，我们使用googleAI作为默认模型，但传入用户的API Key配置
-      // 注意：实际使用时，需要根据具体的模型类型选择合适的插件
+      // 对于自定义模型，我们需要使用不同的处理方式
+      console.log('Using custom model configuration:', { modelId, baseUrl });
       return {
-        model: 'googleai/gemini-3.1-flash-lite-preview',
+        model: 'custom/model', // 使用自定义模型标识
         config: {
           apiKey,
           baseUrl: baseUrl || 'https://api.openai.com/v1',
@@ -44,17 +42,25 @@ export async function getAiParams() {
           temperature: 0.7
         }
       };
+    } else {
+      throw new Error('Custom model configuration is incomplete. Please check your settings.');
     }
   }
 
   // 2. 检查是否有用户私有的 Gemini Key (从 cookies 获取，通常由 actions 同步自 Firestore)
   const userGeminiKey = cookieStore.get('user-gemini-key')?.value;
 
+  const apiKey = userGeminiKey || defaultApiKey;
+  if (!apiKey) {
+    throw new Error('No API Key found. Please set your API Key in settings.');
+  }
+
+  console.log('Using model:', selectedModel);
   return {
     model: selectedModel as any,
     config: {
       temperature: 0.7,
-      apiKey: userGeminiKey || defaultApiKey || 'AIzaSyD36X0K1e2bWzDROiZUvsht7YYw4nu7QZA'
+      apiKey
     }
   };
 }

@@ -38,20 +38,22 @@ const extractGraphPrompt = ai.definePrompt({
   name: 'extractKnowledgeGraphPrompt',
   input: { schema: ExtractGraphInputSchema },
   output: { schema: ExtractGraphOutputSchema },
-  prompt: `You are an expert knowledge engineer. Your task is to analyze the following research document text and extract a knowledge graph representing the key entities and their relationships.
+  prompt: `You are an expert knowledge engineer specializing in scientific research. Your task is to analyze the following research document text and extract a comprehensive knowledge graph representing the key entities and their relationships.
 
 STRICT RULES:
-1. Identify major concepts, scientific methods, specific results, and tools.
-2. Define clear relationships between these entities.
-3. Keep the number of nodes between 10 and 20 for optimal visualization.
-4. Ensure the graph is logically coherent and reflects the core findings of the text.
+1. Identify major concepts, scientific methods, specific results, tools, researchers, and theories.
+2. Define clear, precise relationships between these entities (e.g., "uses", "depends on", "implements", "leads to", "contradicts").
+3. Keep the number of nodes between 15 and 25 for optimal visualization and information richness.
+4. Ensure the graph is logically coherent, hierarchically structured, and reflects the core findings of the text.
+5. Use consistent naming conventions for nodes and relationships.
+6. Prioritize entities that are central to the research topic.
 
 Input Text:
 """
 {{{text}}}
 """
 
-Please return a structured JSON response with "nodes" and "edges".`,
+Please return a structured JSON response with "nodes" and "edges". Ensure the response is valid JSON and contains only the graph data.`,
 });
 
 const extractKnowledgeGraphFlow = ai.defineFlow(

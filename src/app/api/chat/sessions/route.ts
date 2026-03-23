@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { initializeFirebase } from '@/firebase';
+import { initializeFirebaseServer } from '@/firebase/server';
 import { ChatSession } from '@/lib/types';
 import { collection, addDoc, getDocs } from 'firebase/firestore';
 
 export async function GET(req: NextRequest) {
   try {
-    const { firestore } = initializeFirebase();
+    const { firestore } = await initializeFirebaseServer();
     const chatSessionsRef = collection(firestore, 'chatSessions');
     
     // Get all chat sessions
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { firestore } = initializeFirebase();
+    const { firestore } = await initializeFirebaseServer();
     const chatSessionsRef = collection(firestore, 'chatSessions');
     
     const chatSessionData = await req.json();

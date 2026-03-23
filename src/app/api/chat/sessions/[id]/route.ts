@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { initializeFirebase } from '@/firebase';
+import { initializeFirebaseServer } from '@/firebase/server';
 import { ChatSession } from '@/lib/types';
 import { doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const { firestore } = initializeFirebase();
+    const { firestore } = await initializeFirebaseServer();
     const chatSessionRef = doc(firestore, 'chatSessions', params.id);
     
     const docSnap = await getDoc(chatSessionRef);
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const { firestore } = initializeFirebase();
+    const { firestore } = await initializeFirebaseServer();
     const chatSessionRef = doc(firestore, 'chatSessions', params.id);
     
     // Check if chat session exists
@@ -64,7 +64,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const { firestore } = initializeFirebase();
+    const { firestore } = await initializeFirebaseServer();
     const chatSessionRef = doc(firestore, 'chatSessions', params.id);
     
     // Check if chat session exists

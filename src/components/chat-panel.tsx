@@ -87,36 +87,77 @@ export function ChatPanel({ onToggleHistory, isHistoryOpen }: ChatPanelProps) {
     setIsSearchingKnowledge(true);
     
     try {
-      let allRelevantChunks: string[] = [];
+      let allRelevantChunks: { content: string; score: number }[] = [];
       const keywords = queryText.toLowerCase().split(/\s+/).filter(k => k.length > 1);
+
+      const calculateRelevanceScore = (content: string, query: string, queryKeywords: string[]) => {
+        const contentLower = content.toLowerCase();
+        const queryLower = query.toLowerCase();
+        
+        let score = 0;
+        
+        // 完全匹配加分
+        if (contentLower.includes(queryLower)) {
+          score += 5;
+        }
+        
+        // 关键词匹配加分
+        queryKeywords.forEach(keyword => {
+          if (contentLower.includes(keyword)) {
+            score += 2;
+          }
+        });
+        
+        // 内容长度适中加分
+        const length = content.length;
+        if (length > 100 && length < 800) {
+          score += 1;
+        }
+        
+        return score;
+      };
 
       if (linkedSourceId) {
         // 精准检索关联的库
         const chunksRef = collection(firestore, 'users', user.uid, 'knowledgeSources', linkedSourceId, 'chunks');
-        const chunksSnap = await getDocs(query(chunksRef, limit(30)));
+        const chunksSnap = await getDocs(query(chunksRef, limit(50)));
         const filtered = chunksSnap.docs
           .map(d => d.data().content as string)
-          .filter(content => {
-            if (keywords.length === 0) return content.toLowerCase().includes(queryText.toLowerCase());
-            return keywords.some(k => content.toLowerCase().includes(k));
-          });
+          .map(content => ({
+            content,
+            score: calculateRelevanceScore(content, queryText, keywords)
+          }))
+          .filter(item => item.score > 0)
+          .sort((a, b) => b.score - a.score);
         allRelevantChunks.push(...filtered);
       } else {
         // 全局模糊检索
         const sourcesRef = collection(firestore, 'users', user.uid, 'knowledgeSources');
-        const sourcesSnap = await getDocs(query(sourcesRef, orderBy('createdAt', 'desc'), limit(5)));
+        const sourcesSnap = await getDocs(query(sourcesRef, orderBy('createdAt', 'desc'), limit(8)));
         
         for (const sourceDoc of sourcesSnap.docs) {
           const chunksRef = collection(firestore, 'users', user.uid, 'knowledgeSources', sourceDoc.id, 'chunks');
-          const chunksSnap = await getDocs(query(chunksRef, limit(15)));
+          const chunksSnap = await getDocs(query(chunksRef, limit(20)));
           const filtered = chunksSnap.docs
             .map(d => d.data().content as string)
-            .filter(content => keywords.some(k => content.toLowerCase().includes(k)));
+            .map(content => ({
+              content,
+              score: calculateRelevanceScore(content, queryText, keywords)
+            }))
+            .filter(item => item.score > 0)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 3); // 每个源最多取3个最相关的
           allRelevantChunks.push(...filtered);
         }
       }
 
-      return allRelevantChunks.slice(0, 5).join("\n\n---\n\n");
+      // 按相关性排序并取前8个
+      const topChunks = allRelevantChunks
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 8)
+        .map(item => item.content);
+
+      return topChunks.join("\n\n---\n\n");
     } catch (e) {
       console.error("Knowledge retrieval error:", e);
       return "";
@@ -128,7 +169,8 @@ export function ChatPanel({ onToggleHistory, isHistoryOpen }: ChatPanelProps) {
   const streamMessage = async (message: string) => {
     if (!message.trim() || isGenerating || !user || !firestore) return;
 
-    const knowledgeContext = await retrieveRelevantKnowledge(message);
+    // 只有在关联了知识库的情况下才进行检索
+    const knowledgeContext = linkedSourceId ? await retrieveRelevantKnowledge(message) : "";
 
     const currentHistorySnapshot = [...messages];
     const sessionId = sessionIdFromUrl || `chat-${Date.now()}`;

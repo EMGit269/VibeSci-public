@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { initializeFirebase } from '@/firebase';
+import { initializeFirebaseServer } from '@/firebase/server';
 import { KnowledgeSource } from '@/lib/types';
 import { collection, addDoc, getDocs, query, where } from 'firebase/firestore';
 
 export async function GET(req: NextRequest) {
   try {
-    const { firestore } = initializeFirebase();
-    const knowledgeSourcesRef = collection(firestore, 'knowledgeSources');
+    const { firestore } = await initializeFirebaseServer();
+    const userId = req.headers.get('x-user-id');
+    
+    if (!userId) {
+      return NextResponse.json({ error: 'User ID is required' }, { status: 401 });
+    }
+    
+    const knowledgeSourcesRef = collection(firestore, 'users', userId, 'knowledgeSources');
     
     // Get all knowledge sources
     const querySnapshot = await getDocs(knowledgeSourcesRef);
@@ -24,8 +30,14 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { firestore } = initializeFirebase();
-    const knowledgeSourcesRef = collection(firestore, 'knowledgeSources');
+    const { firestore } = await initializeFirebaseServer();
+    const userId = req.headers.get('x-user-id');
+    
+    if (!userId) {
+      return NextResponse.json({ error: 'User ID is required' }, { status: 401 });
+    }
+    
+    const knowledgeSourcesRef = collection(firestore, 'users', userId, 'knowledgeSources');
     
     const knowledgeSourceData = await req.json();
     
