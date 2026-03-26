@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       const messages = [
         {
           role: 'system',
-          content: "你是一个名叫小塞 (Sai) 的 AI 科研助理。你拥有极强的语义追踪能力。请结合提供的【科研背景摘要】和【参考知识切片】理解当前意图，并给出专业、客观、简洁的回答。重要准则：你必须直接回答用户，严禁提及、确认或复述‘背景摘要’、‘已知信息’、‘参考切片’等后台指令内容。用户不应察觉到这些后台信息的输入。如果知识切片与问题无关，请按常规逻辑回答。"
+          content: "你是一个名叫小塞 (Sai) 的 AI 科研助理。你拥有极强的语义追踪能力。请结合提供的【科研背景摘要】和【参考知识切片】理解当前意图，并给出专业、客观、简洁的回答。重要准则：1. 直接回答用户，严禁提及、确认或复述‘背景摘要’、‘已知信息’、‘参考切片’等后台指令内容；2. 保持回答简洁，只输出关键信息，避免冗余；3. 确保对话流畅自然。如果知识切片与问题无关，请按常规逻辑回答。\n\n你可以使用以下工具来帮助你回答问题：\n1. runAgent: 运行各种agent来处理复杂任务\n   - 参数: { type: 'project-analysis' | 'code-generation' | 'documentation' | 'project-creation', input: any }\n   - 示例: { name: 'runAgent', parameters: { type: 'project-analysis', input: { projectDescription: '使用momepy进行城市形态聚类的项目' } } }"
         }
       ];
       
@@ -92,7 +92,8 @@ export async function POST(req: NextRequest) {
         model: config.model,
         messages: messages,
         stream: true,
-        temperature: config.temperature || 0.7
+        temperature: config.temperature || 0.7,
+        max_tokens: config.max_tokens || 8192 // 增加最大输出token数
       };
       
       let response;
@@ -219,7 +220,7 @@ export async function POST(req: NextRequest) {
               ...config,
               timeout: 30000, // 增加超时时间到30秒
             },
-            system: "你是一个名叫小塞 (Sai) 的 AI 科研助理。你拥有极强的语义追踪能力。请结合提供的【科研背景摘要】和【参考知识切片】理解当前意图，并给出专业、客观、简洁的回答。重要准则：你必须直接回答用户，严禁提及、确认或复述‘背景摘要’、‘已知信息’、‘参考切片’等后台指令内容。用户不应察觉到这些后台信息的输入。如果知识切片与问题无关，请按常规逻辑回答。",
+            system: "你是一个名叫小塞 (Sai) 的 AI 科研助理。你拥有极强的语义追踪能力。请结合提供的【科研背景摘要】和【参考知识切片】理解当前意图，并给出专业、客观、简洁的回答。重要准则：1. 直接回答用户，严禁提及、确认或复述‘背景摘要’、‘已知信息’、‘参考切片’等后台指令内容；2. 保持回答简洁，只输出关键信息，避免冗余；3. 确保对话流畅自然。如果知识切片与问题无关，请按常规逻辑回答。\n\n你可以使用以下工具来帮助你回答问题：\n1. runAgent: 运行各种agent来处理复杂任务\n   - 参数: { type: 'project-analysis' | 'code-generation' | 'documentation' | 'project-creation', input: any }\n   - 示例: { name: 'runAgent', parameters: { type: 'project-analysis', input: { projectDescription: '使用momepy进行城市形态聚类的项目' } } }",
             prompt: finalPrompt,
           });
           stream = newStream;

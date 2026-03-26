@@ -11,6 +11,7 @@ import { useUser, useFirestore, useCollection, useMemoFirebase, addDocumentNonBl
 import { collection, query, orderBy, doc } from 'firebase/firestore';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { encrypt, decrypt } from '@/lib/encryption';
 
 export default function AISettingsPage() {
   const { user } = useUser();
@@ -20,6 +21,7 @@ export default function AISettingsPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [loading, setLoading] = useState(false);
   const [geminiLoading, setGeminiLoading] = useState(false);
+  const [deepseekLoading, setDeepseekLoading] = useState(false);
   const [defaultModelLoading, setDefaultModelLoading] = useState(false);
 
   // Custom Model Form State
@@ -30,6 +32,7 @@ export default function AISettingsPage() {
 
   // Gemini Override State
   const [geminiKey, setGeminiKey] = useState('');
+  const [deepseekKey, setDeepseekKey] = useState('');
   const [defaultModel, setDefaultModel] = useState('googleai/gemini-3.1-flash-lite-preview');
 
   const modelsQuery = useMemoFirebase(() => {
@@ -45,14 +48,40 @@ export default function AISettingsPage() {
     return doc(firestore, 'users', user.uid, 'settings', 'gemini');
   }, [firestore, user?.uid]);
 
+  const deepseekConfigRef = useMemoFirebase(() => {
+    if (!firestore || !user?.uid) return null;
+    return doc(firestore, 'users', user.uid, 'settings', 'deepseek');
+  }, [firestore, user?.uid]);
+
   const { data: models, isLoading } = useCollection(modelsQuery);
   const { data: geminiSettings } = useDoc(geminiConfigRef);
+  const { data: deepseekSettings } = useDoc(deepseekConfigRef);
 
   useEffect(() => {
     if (geminiSettings?.apiKey) {
-      setGeminiKey(geminiSettings.apiKey);
+      try {
+        // 解密API Key
+        const decryptedKey = decrypt(geminiSettings.apiKey);
+        setGeminiKey(decryptedKey);
+      } catch (e) {
+        console.error('Error decrypting Gemini key:', e);
+        setGeminiKey('');
+      }
     }
   }, [geminiSettings]);
+
+  useEffect(() => {
+    if (deepseekSettings?.apiKey) {
+      try {
+        // 解密API Key
+        const decryptedKey = decrypt(deepseekSettings.apiKey);
+        setDeepseekKey(decryptedKey);
+      } catch (e) {
+        console.error('Error decrypting DeepSeek key:', e);
+        setDeepseekKey('');
+      }
+    }
+  }, [deepseekSettings]);
 
   // Load default model from cookies on mount
   useEffect(() => {
@@ -97,9 +126,11 @@ export default function AISettingsPage() {
     if (!user || !firestore) return;
     setGeminiLoading(true);
     try {
+      // 加密API Key
+      const encryptedKey = encrypt(geminiKey);
       const ref = doc(firestore, 'users', user.uid, 'settings', 'gemini');
       setDocumentNonBlocking(ref, { 
-        apiKey: geminiKey,
+        apiKey: encryptedKey,
         updatedAt: new Date().toISOString()
       }, { merge: true });
 
@@ -115,6 +146,35 @@ export default function AISettingsPage() {
     }
   };
 
+  const handleSaveDeepseekKey = async () => {
+    if (!user || !firestore) return;
+    setDeepseekLoading(true);
+    try {
+      // 加密API Key
+      const encryptedKey = encrypt(deepseekKey);
+      const ref = doc(firestore, 'users', user.uid, 'settings', 'deepseek');
+      setDocumentNonBlocking(ref, { 
+        apiKey: encryptedKey,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      // 自动同步到cookies
+      const { saveCustomAiSettingsAction, syncDeepseekKeyToCookieAction } = await import('@/app/actions');
+      await saveCustomAiSettingsAction({
+        apiKey: deepseekKey,
+        baseUrl: 'https://api.deepseek.com/v1',
+        modelId: 'deepseek-chat'
+      });
+      await syncDeepseekKeyToCookieAction(deepseekKey);
+
+      toast({ title: 'DeepSeek 设置已保存', description: '科研流将优先使用您的私有 DeepSeek API Key。' });
+    } catch (e) {
+      toast({ title: '保存失败', variant: 'destructive' });
+    } finally {
+      setDeepseekLoading(false);
+    }
+  };
+
   const handleAddModel = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !firestore) return;
@@ -126,11 +186,13 @@ export default function AISettingsPage() {
 
     setLoading(true);
     try {
+      // 加密API Key
+      const encryptedApiKey = encrypt(apiKey);
       const modelsRef = collection(firestore, 'users', user.uid, 'aiModelConfigs');
       await addDocumentNonBlocking(modelsRef, {
         name,
         modelId,
-        apiKey,
+        apiKey: encryptedApiKey,
         baseUrl: baseUrl || 'https://api.openai.com/v1',
         createdAt: new Date().toISOString(),
       });
@@ -165,7 +227,15 @@ export default function AISettingsPage() {
 
   const formatApiKey = (key: string) => {
     if (!key || key.length <= 8) return '••••••••';
-    return `${key.slice(0, 4)}••••${key.slice(-4)}`;
+    try {
+      // 尝试解密API Key
+      const decryptedKey = decrypt(key);
+      if (decryptedKey.length <= 8) return '••••••••';
+      return `${decryptedKey.slice(0, 4)}••••${decryptedKey.slice(-4)}`;
+    } catch (e) {
+      // 如果解密失败，使用原始字符串
+      return `${key.slice(0, 4)}••••${key.slice(-4)}`;
+    }
   };
 
   return (
@@ -212,6 +282,39 @@ export default function AISettingsPage() {
                 </div>
                 <p className="text-[10px] text-muted-foreground italic">
                   * 留空将默认使用系统的共享额度。
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* DeepSeek 设置卡片 */}
+          <Card className="border-2 border-blue-100 dark:border-blue-900/30 overflow-hidden">
+            <CardHeader className="bg-blue-50/50 dark:bg-blue-900/10">
+              <div className="flex items-center gap-2">
+                <Cpu className="h-5 w-5 text-blue-600" />
+                <CardTitle className="font-headline text-xl">DeepSeek 原生设置</CardTitle>
+              </div>
+              <CardDescription>配置您的私有 DeepSeek API Key 以使用 DeepSeek 模型。</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6 space-y-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-bold uppercase text-muted-foreground flex items-center gap-2">
+                  <Key className="h-3 w-3" /> DeepSeek API Key
+                </Label>
+                <div className="flex gap-2">
+                  <Input 
+                    type="password" 
+                    placeholder="sk-..." 
+                    value={deepseekKey} 
+                    onChange={(e) => setDeepseekKey(e.target.value)} 
+                    className="font-mono text-sm"
+                  />
+                  <Button onClick={handleSaveDeepseekKey} disabled={deepseekLoading} className="bg-blue-600 hover:bg-blue-700">
+                    {deepseekLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  </Button>
+                </div>
+                <p className="text-[10px] text-muted-foreground italic">
+                  * 配置后将自动设置为自定义模型。
                 </p>
               </div>
             </CardContent>

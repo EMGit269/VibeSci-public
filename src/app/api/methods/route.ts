@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { initializeFirebase } from '@/firebase';
+import { initializeFirebaseServer } from '@/firebase/server';
 import { Method } from '@/lib/types';
 import { collection, addDoc, getDocs, query, where } from 'firebase/firestore';
 
 export async function GET(req: NextRequest) {
   try {
-    const { firestore } = initializeFirebase();
+    const { firestore } = await initializeFirebaseServer();
     const methodsRef = collection(firestore, 'methods');
     
     // Check if taskId is provided in query params
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { firestore } = initializeFirebase();
+    const { firestore } = await initializeFirebaseServer();
     const methodsRef = collection(firestore, 'methods');
     
     const methodData = await req.json();

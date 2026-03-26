@@ -2,6 +2,7 @@
 'use server';
 
 import { cookies } from 'next/headers';
+import { encrypt, decrypt } from '@/lib/encryption';
 import { generateCodeForTaskMethod, type GenerateCodeForTaskMethodInput } from '@/ai/flows/generate-code-for-task-method-flow';
 import { generateDocumentationFromCode, type GenerateDocumentationFromCodeInput } from '@/ai/flows/generate-documentation-from-code-flow';
 import { compareSolutionMethods, type CompareSolutionMethodsInput } from '@/ai/flows/compare-solution-methods';
@@ -26,13 +27,37 @@ export async function setSelectedModelAction(model: string) {
 export async function saveCustomAiSettingsAction(data: { apiKey: string, baseUrl?: string, modelId: string }) {
   try {
     const cookieStore = await cookies();
-    cookieStore.set('custom-api-key', data.apiKey, { path: '/', maxAge: 60 * 60 * 24 * 30 });
+    // 加密API Key
+    const encryptedApiKey = encrypt(data.apiKey);
+    cookieStore.set('custom-api-key', encryptedApiKey, { path: '/', maxAge: 60 * 60 * 24 * 30 });
     if (data.baseUrl) {
       cookieStore.set('custom-base-url', data.baseUrl, { path: '/', maxAge: 60 * 60 * 24 * 30 });
     } else {
       cookieStore.delete('custom-base-url');
     }
     cookieStore.set('custom-model-id', data.modelId, { path: '/', maxAge: 60 * 60 * 24 * 30 });
+    
+    // 如果是DeepSeek模型，同时设置deepseek-api-key cookie
+    if (data.modelId === 'deepseek-chat' || data.baseUrl?.includes('deepseek')) {
+      cookieStore.set('deepseek-api-key', encryptedApiKey, { path: '/', maxAge: 60 * 60 * 24 * 30 });
+    }
+    
+    return { success: true };
+  } catch (e) {
+    return { success: false };
+  }
+}
+
+export async function syncDeepseekKeyToCookieAction(key: string) {
+  try {
+    const cookieStore = await cookies();
+    if (key) {
+      // 加密API Key
+      const encryptedKey = encrypt(key);
+      cookieStore.set('deepseek-api-key', encryptedKey, { path: '/', maxAge: 60 * 60 * 24 * 30 });
+    } else {
+      cookieStore.delete('deepseek-api-key');
+    }
     return { success: true };
   } catch (e) {
     return { success: false };
@@ -43,7 +68,9 @@ export async function syncGeminiKeyToCookieAction(key: string) {
   try {
     const cookieStore = await cookies();
     if (key) {
-      cookieStore.set('user-gemini-key', key, { path: '/', maxAge: 60 * 60 * 24 * 30 });
+      // 加密API Key
+      const encryptedKey = encrypt(key);
+      cookieStore.set('user-gemini-key', encryptedKey, { path: '/', maxAge: 60 * 60 * 24 * 30 });
     } else {
       cookieStore.delete('user-gemini-key');
     }
@@ -59,10 +86,15 @@ export async function syncGeminiKeyToCookieAction(key: string) {
 
 export async function generateChatTitleAction(userMessage: string, assistantResponse: string) {
   try {
+    console.log('generateChatTitleAction called with:', { userMessage, assistantResponse });
     const title = await generateChatTitle({ userMessage, assistantResponse });
+    console.log('generateChatTitleAction result:', { success: true, title });
     return { success: true, title };
   } catch (e) {
-    return { success: false, title: userMessage.substring(0, 20) };
+    console.error('Error in generateChatTitleAction:', e);
+    const fallbackTitle = userMessage.substring(0, 20);
+    console.log('generateChatTitleAction fallback:', { success: false, title: fallbackTitle });
+    return { success: false, title: fallbackTitle };
   }
 }
 
