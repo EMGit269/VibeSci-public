@@ -902,7 +902,22 @@ export function ChatPanel({ onToggleHistory, isHistoryOpen }: ChatPanelProps) {
       }
     } catch (error) {
       console.error('Error streaming chat:', error);
-      toast({ title: '连接错误', description: '无法连接到小塞，请稍后再试。', variant: 'destructive' });
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      let friendlyErrorMsg = '无法连接到小塞，请稍后再试。';
+      
+      if (errorMessage.includes('timeout') || errorMessage.includes('Timeout')) {
+        friendlyErrorMsg = '网络连接超时，请检查您的网络连接或使用代理服务器。';
+      } else if (errorMessage.includes('fetch failed')) {
+        friendlyErrorMsg = '无法连接到AI服务，请检查您的网络连接。';
+      } else if (errorMessage.includes('API key') || errorMessage.includes('api_key')) {
+        friendlyErrorMsg = 'API Key无效或已过期，请在设置中更新您的API Key。';
+      } else if (errorMessage.includes('model') || errorMessage.includes('Model')) {
+        friendlyErrorMsg = '模型配置错误，请检查模型ID是否正确。';
+      } else if (errorMessage.includes('permission') || errorMessage.includes('Permission')) {
+        friendlyErrorMsg = '权限不足，请检查您的API Key权限设置。';
+      }
+      
+      toast({ title: '连接错误', description: friendlyErrorMsg, variant: 'destructive' });
     } finally {
       setIsGenerating(false);
       setStreamingText('');
