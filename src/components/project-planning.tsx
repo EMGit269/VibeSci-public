@@ -355,7 +355,10 @@ export function ProjectPlanning({
                 }),
             });
 
-            if (!response.ok) throw new Error('Failed to fetch stream');
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`API Error: ${response.status} - ${errorText}`);
+            }
 
             const reader = response.body?.getReader();
             const decoder = new TextDecoder();
@@ -391,7 +394,12 @@ export function ProjectPlanning({
             }
         } catch (error) {
             console.error('Error refining plan:', error);
-            toast({ title: "AI Error", variant: "destructive" });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            toast({ 
+                title: "AI Error", 
+                description: errorMessage, 
+                variant: "destructive" 
+            });
         } finally {
             setIsAiLoading(false);
         }

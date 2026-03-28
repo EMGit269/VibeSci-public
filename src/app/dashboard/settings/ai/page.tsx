@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Plus, Trash2, Key, Globe, Cpu, Bot, ChevronLeft, Save, Sparkles, ShieldCheck } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking, useDoc } from '@/firebase';
-import { collection, query, orderBy, doc } from 'firebase/firestore';
+import { collection, query, orderBy, doc, addDoc } from 'firebase/firestore';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { encrypt, decrypt } from '@/lib/encryption';
@@ -177,7 +177,10 @@ export default function AISettingsPage() {
 
   const handleAddModel = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !firestore) return;
+    if (!user || !firestore) {
+      toast({ title: '未登录', description: '请先登录后再添加配置。', variant: 'destructive' });
+      return;
+    }
 
     if (!name || !modelId || !apiKey) {
       toast({ title: '信息不完整', description: '名称、模型 ID 和 API Key 为必填项。', variant: 'destructive' });
@@ -186,16 +189,22 @@ export default function AISettingsPage() {
 
     setLoading(true);
     try {
+      console.log('开始保存模型配置');
       // 加密API Key
       const encryptedApiKey = encrypt(apiKey);
+      console.log('API Key 加密成功');
       const modelsRef = collection(firestore, 'users', user.uid, 'aiModelConfigs');
-      await addDocumentNonBlocking(modelsRef, {
+      console.log('Firestore 引用创建成功');
+      
+      // 尝试直接使用 addDoc 而不是 addDocumentNonBlocking
+      const docRef = await addDoc(modelsRef, {
         name,
         modelId,
         apiKey: encryptedApiKey,
         baseUrl: baseUrl || 'https://api.openai.com/v1',
         createdAt: new Date().toISOString(),
       });
+      console.log('Firestore 保存成功，文档ID:', docRef.id);
 
       // 自动同步到cookies
       const { saveCustomAiSettingsAction } = await import('@/app/actions');
@@ -204,6 +213,7 @@ export default function AISettingsPage() {
         baseUrl: baseUrl || 'https://api.openai.com/v1',
         modelId
       });
+      console.log('Cookies 同步成功');
 
       toast({ title: '配置已添加', description: `"${name}" 现已在模型列表中可用。` });
       setIsAdding(false);
@@ -212,7 +222,8 @@ export default function AISettingsPage() {
       setApiKey('');
       setBaseUrl('');
     } catch (e) {
-      toast({ title: '保存失败', variant: 'destructive' });
+      console.error('保存失败:', e);
+      toast({ title: '保存失败', description: '请检查网络连接和权限设置。', variant: 'destructive' });
     } finally {
       setLoading(false);
     }

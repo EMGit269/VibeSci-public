@@ -46,7 +46,9 @@ export function addDocumentNonBlocking(colRef: CollectionReference, data: any) {
           operation: 'create',
           requestResourceData: data,
         })
-      )
+      );
+      // 重新抛出错误，让Promise被拒绝
+      throw error;
     });
   return promise;
 }

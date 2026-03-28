@@ -192,11 +192,17 @@ export async function POST(req: NextRequest) {
             let friendlyErrorMsg = errorMsg;
             
             if (errorMsg.includes('timeout') || errorMsg.includes('Timeout')) {
-              friendlyErrorMsg = '网络连接超时，请检查您的网络连接或使用代理服务器。';
+              friendlyErrorMsg = '网络连接超时，请检查您的网络连接或使用代理服务器。如果您在中国大陆，可能需要使用VPN才能访问AI服务。';
             } else if (errorMsg.includes('fetch failed')) {
               friendlyErrorMsg = '无法连接到自定义AI服务，请检查您的网络连接和API Key配置。';
-            } else if (errorMsg.includes('API key')) {
+            } else if (errorMsg.includes('API key') || errorMsg.includes('api_key')) {
               friendlyErrorMsg = 'API Key无效或已过期，请在设置中更新您的API Key。';
+            } else if (errorMsg.includes('model') || errorMsg.includes('Model')) {
+              friendlyErrorMsg = '模型配置错误，请检查模型ID是否正确。';
+            } else if (errorMsg.includes('permission') || errorMsg.includes('Permission')) {
+              friendlyErrorMsg = '权限不足，请检查您的API Key权限设置。';
+            } else {
+              friendlyErrorMsg = `AI服务返回错误: ${errorMsg}`;
             }
             
             controller.enqueue(encoder.encode(`\n\n[小塞出了一点小状况: ${friendlyErrorMsg}]`));
@@ -264,8 +270,14 @@ export async function POST(req: NextRequest) {
               friendlyErrorMsg = '网络连接超时，请检查您的网络连接或使用代理服务器。如果您在中国大陆，可能需要使用VPN才能访问Google AI服务。';
             } else if (errorMsg.includes('fetch failed')) {
               friendlyErrorMsg = '无法连接到AI服务，请检查您的网络连接和API Key配置。';
-            } else if (errorMsg.includes('API key')) {
+            } else if (errorMsg.includes('API key') || errorMsg.includes('api_key')) {
               friendlyErrorMsg = 'API Key无效或已过期，请在设置中更新您的API Key。';
+            } else if (errorMsg.includes('model') || errorMsg.includes('Model')) {
+              friendlyErrorMsg = '模型配置错误，请检查模型ID是否正确。';
+            } else if (errorMsg.includes('permission') || errorMsg.includes('Permission')) {
+              friendlyErrorMsg = '权限不足，请检查您的API Key权限设置。';
+            } else {
+              friendlyErrorMsg = `AI服务返回错误: ${errorMsg}`;
             }
             
             controller.enqueue(encoder.encode(`\n\n[小塞出了一点小状况: ${friendlyErrorMsg}]`));
