@@ -196,13 +196,14 @@ export function ChatPanel({ onToggleHistory, isHistoryOpen }: ChatPanelProps) {
       if (lowerMessage.includes('创建') && (lowerMessage.includes('项目') || lowerMessage.includes('task') || lowerMessage.includes('方法'))) {
         return { type: 'project-creation', input: { projectName: message, projectDescription: message } };
       }
-      
-      // 学术论文搜索
-      if (lowerMessage.includes('搜索') && (lowerMessage.includes('论文') || lowerMessage.includes('学术') || lowerMessage.includes('文献') || lowerMessage.includes('paper') || lowerMessage.includes('academic'))) {
-        return { type: 'academic-paper-search', input: { query: message } };
+
+      // 科研代码管理
+      if (lowerMessage.includes('科研代码') || lowerMessage.includes('代码管理') || lowerMessage.includes('代码结构') || lowerMessage.includes('代码架构') || lowerMessage.includes('项目模板') || lowerMessage.includes('文献综述') || (lowerMessage.includes('研究') && lowerMessage.includes('代码'))) {
+        return { type: 'research-code-manager', input: { action: 'analyze_structure', projectPath: message } };
       }
-      
-      return null;
+
+      //  LangChain agent (默认)
+      return { type: 'langchain', input: { sessionId: sessionIdFromUrl || `chat-${Date.now()}`, input: message, chatHistory: messages } };
     } catch (error) {
       console.error('Error analyzing message for agent:', error);
       return null;
@@ -216,7 +217,7 @@ export function ChatPanel({ onToggleHistory, isHistoryOpen }: ChatPanelProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: `请分析以下用户请求，判断是否需要使用agent，如果需要，请返回对应的agent类型和输入参数。\n\n用户请求：${message}\n\n请按照以下格式返回：\n{"agentType": "project-analysis" | "code-generation" | "documentation" | "project-creation" | "academic-paper-search" | null, "input": {...}}\n\n对于学术论文搜索agent，请确保input包含以下字段：\n- query: 搜索查询词\n- fields: 可选，要返回的字段列表，如["title", "abstract", "authors", "publicationDate"]\n- maxResults: 可选，最大结果数，默认为10`,
+          message: `请分析以下用户请求，判断是否需要使用agent，如果需要，请返回对应的agent类型和输入参数。\n\n用户请求：${message}\n\n请按照以下格式返回：\n{"agentType": "project-analysis" | "code-generation" | "documentation" | "project-creation" | "research-code-manager" | "langchain" | null, "input": {...}}\n\n对于科研代码管理agent，请确保input包含以下字段：\n- action: 操作类型，"analyze_structure" | "visualize_deps" | "generate_template" | "generate_literature_review"\n- projectPath: 项目路径（可选）\n- projectName: 项目名称（可选）\n- projectType: 项目类型（可选），"deep-learning" | "ml" | "statistics" | "numerical"\n- outputPath: 输出路径（可选）\n\n对于langchain agent，请确保input包含以下字段：\n- sessionId: 会话ID\n- input: 用户输入\n- chatHistory: 聊天历史（可选）`,
           history: [],
           knowledgeContext: ""
         }),
@@ -224,23 +225,63 @@ export function ChatPanel({ onToggleHistory, isHistoryOpen }: ChatPanelProps) {
 
       if (!response.ok) throw new Error('Failed to fetch LLM analysis');
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
+      // 提前创建响应的克隆，用于错误处理
+      const clonedResponse = response.clone();
       let analysisText = '';
+      
+      try {
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
 
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          
-          const chunk = decoder.decode(value, { stream: true });
-          analysisText += chunk;
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            const chunk = decoder.decode(value, { stream: true });
+            analysisText += chunk;
+          }
+        }
+      } catch (error) {
+        console.error('Error reading analysis stream:', error);
+        // 如果流读取失败，尝试使用克隆的响应获取文本
+        if (error instanceof Error && error.message.includes('Locked')) {
+          try {
+            analysisText = await clonedResponse.text();
+          } catch (cloneError) {
+            console.error('Error reading cloned response:', cloneError);
+          }
         }
       }
 
       // 尝试解析LLM返回的JSON
       try {
-        const analysis = JSON.parse(analysisText);
+        // 先检查返回的内容是否是错误信息
+        if (analysisText.includes('[小塞出了一点小状况') || analysisText.includes('出了一点小状况')) {
+          console.error('LLM returned error message:', analysisText);
+          // 回退到传统的关键词匹配
+          return analyzeMessageForAgent(message);
+        }
+        
+        // 尝试提取JSON部分（有时候LLM会返回额外的文本）
+        let jsonText = analysisText.trim();
+        
+        // 如果内容被代码块包裹，提取其中的JSON
+        if (jsonText.includes('```json')) {
+          const match = jsonText.match(/```json\s*([\s\S]*?)\s*```/);
+          if (match) jsonText = match[1].trim();
+        } else if (jsonText.includes('```')) {
+          const match = jsonText.match(/```\s*([\s\S]*?)\s*```/);
+          if (match) jsonText = match[1].trim();
+        }
+        
+        // 查找JSON对象（以 { 开头，以 } 结尾）
+        const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          jsonText = jsonMatch[0];
+        }
+        
+        const analysis = JSON.parse(jsonText);
         if (analysis.agentType && analysis.input) {
           // 确保输入参数格式正确
           let formattedInput = analysis.input;
@@ -274,19 +315,30 @@ export function ChatPanel({ onToggleHistory, isHistoryOpen }: ChatPanelProps) {
             }
           }
           
-          // 对于学术论文搜索agent，确保有必要的字段
-          if (analysis.agentType === 'academic-paper-search') {
-            if (!formattedInput.query) {
-              formattedInput.query = message;
+          // 对于科研代码管理agent，确保有必要的字段
+          if (analysis.agentType === 'research-code-manager') {
+            if (!formattedInput.action) {
+              formattedInput.action = 'analyze_structure';
             }
-            if (!formattedInput.fields) {
-              formattedInput.fields = ['title', 'abstract', 'authors', 'publicationDate'];
-            }
-            if (!formattedInput.maxResults) {
-              formattedInput.maxResults = 5;
+            if (!formattedInput.projectPath) {
+              formattedInput.projectPath = message;
             }
           }
-          
+
+          // 对于langchain agent，确保有必要的字段
+          if (analysis.agentType === 'langchain') {
+            if (!formattedInput.sessionId) {
+              formattedInput.sessionId = sessionIdFromUrl || `chat-${Date.now()}`;
+            }
+            if (!formattedInput.input) {
+              formattedInput.input = message;
+            }
+            if (!formattedInput.chatHistory) {
+              formattedInput.chatHistory = messages;
+            }
+
+          }
+
           return { type: analysis.agentType, input: formattedInput };
         }
       } catch (e) {
@@ -305,39 +357,22 @@ export function ChatPanel({ onToggleHistory, isHistoryOpen }: ChatPanelProps) {
 
   // 处理agent确认和执行
   const handleAgentConfirmation = async (agentRequest: any, userMsg: ChatMessage, currentHistorySnapshot: ChatMessage[], sessionDocRef: any, initialTitle: string) => {
-    // 生成确认消息
-    let agentTypeText = '';
-    switch (agentRequest.type) {
-      case 'project-analysis':
-        agentTypeText = '项目分析';
-        break;
-      case 'code-generation':
-        agentTypeText = '代码生成';
-        break;
-      case 'documentation':
-        agentTypeText = '文档生成';
-        break;
-      case 'project-creation':
-        agentTypeText = '项目创建';
-        break;
-      case 'academic-paper-search':
-        agentTypeText = '学术论文搜索';
-        break;
-      default:
-        agentTypeText = 'Agent';
-    }
-
-    const confirmationMessage = `我检测到您的请求可能需要使用${agentTypeText}Agent来处理。\n\n正在执行${agentTypeText}Agent...`;
-
-    // 显示确认消息
-    setStreamingText(confirmationMessage);
-
     try {
-      // 执行agent，添加超时机制
+      // 使用流式 API 执行 agent
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60秒超时
+      const timeoutId = setTimeout(() => controller.abort(), 120000); // 120秒超时
       
-      const agentResponse = await fetch('/api/agent', {
+      // 构建可折叠的思考过程内容
+      let thinkingContent = '';
+      let thinkingSteps: string[] = [];
+      let toolCalls: { name: string; status: 'calling' | 'success' | 'error'; result?: any }[] = [];
+      let finalContent = '';
+      let isComplete = false;
+      
+      // 初始显示
+      setStreamingText('🤔 **正在分析任务...**\n\n_等待连接..._');
+      
+      const response = await fetch('/api/agent/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(agentRequest),
@@ -346,48 +381,144 @@ export function ChatPanel({ onToggleHistory, isHistoryOpen }: ChatPanelProps) {
       
       clearTimeout(timeoutId);
 
-      if (!agentResponse.ok) throw new Error('Failed to run agent');
-
-      const agentResult = await agentResponse.json();
-      
-      if (agentResult.success) {
-        // 直接使用agent返回的结果（已经经过大模型整理）
-        const assistantFullText = agentResult.data;
-        
-        setStreamingText(assistantFullText);
-        
-        const finalMessages = [...currentHistorySnapshot, userMsg, { role: 'assistant', content: assistantFullText }];
-        
-        console.log('Generating title in handleAgentConfirmation with userMsg:', userMsg.content);
-        console.log('Generating title in handleAgentConfirmation with assistantFullText:', assistantFullText);
-        
-        let finalTitle = sessionData?.title || initialTitle;
-        console.log('Initial title in handleAgentConfirmation:', finalTitle);
-        
-        // 总是生成新的聊天标题，包括历史聊天
-        const titleResult = await generateChatTitleAction(userMsg.content, assistantFullText);
-        console.log('Title result in handleAgentConfirmation:', titleResult);
-        
-        if (titleResult.success) {
-          finalTitle = titleResult.title;
-          console.log('Updated title in handleAgentConfirmation:', finalTitle);
-        } else {
-          console.log('Title generation failed in handleAgentConfirmation, using fallback:', finalTitle);
-        }
-
-        setDocumentNonBlocking(sessionDocRef, {
-          title: finalTitle,
-          messages: finalMessages,
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
-        
-        console.log('Title updated in Firestore in handleAgentConfirmation:', finalTitle);
-      } else {
-        throw new Error(agentResult.error || 'Agent执行失败');
+      if (!response.ok) {
+        throw new Error(`Failed to run agent: ${response.status}`);
       }
-    } catch (error) {
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      
+      if (!reader) {
+        throw new Error('No response body');
+      }
+
+      let buffer = '';
+      
+      const renderThinkingSection = () => {
+        if (thinkingSteps.length === 0) return '';
+        
+        // 构建思考过程（使用 Markdown 格式）
+        let markdown = `## 🤔 思考过程 (${thinkingSteps.length} 步)\n\n`;
+        thinkingSteps.forEach((step, i) => {
+          markdown += `${i + 1}. ${step}\n`;
+        });
+        
+        // 添加工具调用部分
+        if (toolCalls.length > 0) {
+          markdown += `\n## 🔧 工具调用\n\n`;
+          toolCalls.forEach(tc => {
+            const statusIcon = tc.status === 'calling' ? '⏳' : tc.status === 'success' ? '✅' : '❌';
+            markdown += `- ${statusIcon} **${tc.name}**\n`;
+          });
+        }
+        
+        return markdown;
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        
+        // 处理 SSE 事件
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(line.slice(6));
+              
+              switch (event.type) {
+                case 'thinking':
+                  thinkingSteps.push(event.content);
+                  if (!isComplete) {
+                    setStreamingText(renderThinkingSection() + '\n\n⏳ **处理中...**');
+                  }
+                  break;
+                  
+                case 'tool_call':
+                  toolCalls.push({ name: event.toolName, status: 'calling' });
+                  if (!isComplete) {
+                    setStreamingText(renderThinkingSection() + '\n\n🔧 **正在执行工具...**');
+                  }
+                  break;
+                  
+                case 'tool_result':
+                  if (toolCalls.length > 0) {
+                    toolCalls[toolCalls.length - 1].status = 'success';
+                    toolCalls[toolCalls.length - 1].result = event.toolResult;
+                  }
+                  if (!isComplete) {
+                    setStreamingText(renderThinkingSection() + '\n\n✅ **工具执行完成...**');
+                  }
+                  break;
+                  
+                case 'final':
+                  finalContent = event.content;
+                  isComplete = true;
+                  setStreamingText(renderThinkingSection() + '\n\n---\n\n' + finalContent);
+                  break;
+                  
+                case 'error':
+                  finalContent = `## 执行出错\n\n${event.content}`;
+                  isComplete = true;
+                  setStreamingText(renderThinkingSection() + '\n\n❌ **错误:** ' + event.content);
+                  break;
+              }
+            } catch (e) {
+              console.error('Error parsing SSE event:', e);
+            }
+          }
+        }
+      }
+      
+      // 如果没有收到 final 事件，使用最后的 thinking 内容
+      if (!isComplete && thinkingSteps.length > 0) {
+        finalContent = thinkingContent || 'Agent 执行完成';
+      }
+      
+      const assistantFullText = finalContent;
+      
+      const finalMessages = [...currentHistorySnapshot, userMsg, { role: 'assistant', content: assistantFullText }];
+      
+      console.log('Generating title in handleAgentConfirmation with userMsg:', userMsg.content);
+      console.log('Generating title in handleAgentConfirmation with assistantFullText:', assistantFullText);
+      
+      let finalTitle = sessionData?.title || initialTitle;
+      console.log('Initial title in handleAgentConfirmation:', finalTitle);
+      
+      // 总是生成新的聊天标题，包括历史聊天
+      const titleResult = await generateChatTitleAction(userMsg.content, assistantFullText);
+      console.log('Title result in handleAgentConfirmation:', titleResult);
+      
+      if (titleResult.success) {
+        finalTitle = titleResult.title;
+        console.log('Updated title in handleAgentConfirmation:', finalTitle);
+      } else {
+        console.log('Title generation failed in handleAgentConfirmation, using fallback:', finalTitle);
+      }
+
+      setDocumentNonBlocking(sessionDocRef, {
+        title: finalTitle,
+        messages: finalMessages,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      
+      console.log('Title updated in Firestore in handleAgentConfirmation:', finalTitle);
+      
+    } catch (error: any) {
       console.error('Agent execution error:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Agent执行失败';
+      
+      // 区分不同的错误类型
+      let errorMessage = 'Agent执行失败';
+      if (error.name === 'AbortError') {
+        errorMessage = 'Agent执行超时或被取消，请稍后再试。';
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
       setStreamingText(`## Agent执行失败\n\n${errorMessage}\n\n请稍后再试或尝试其他方式。`);
       
       // 保存错误消息到聊天记录
@@ -462,25 +593,53 @@ export function ChatPanel({ onToggleHistory, isHistoryOpen }: ChatPanelProps) {
             }),
           });
 
-          if (!response.ok) throw new Error('Failed to fetch stream');
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Failed to fetch stream: ${errorText}`);
+          }
 
-          const reader = response.body?.getReader();
-          const decoder = new TextDecoder();
+          // 提前创建响应的克隆，用于错误处理
+          const clonedResponse = response.clone();
           let assistantFullText = '';
+          let streamError = null;
 
-          if (reader) {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              
-              const chunk = decoder.decode(value, { stream: true });
-              assistantFullText += chunk;
-              setStreamingText(assistantFullText);
+          try {
+            const reader = response.body?.getReader();
+            const decoder = new TextDecoder();
+
+            if (reader) {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                const chunk = decoder.decode(value, { stream: true });
+                assistantFullText += chunk;
+                setStreamingText(assistantFullText);
+              }
+            }
+          } catch (error) {
+            console.error('Error reading stream:', error);
+            streamError = error instanceof Error ? error.message : '读取流数据失败';
+            
+            // 如果流读取失败，尝试使用克隆的响应获取文本
+            if (streamError.includes('Locked')) {
+              try {
+                assistantFullText = await clonedResponse.text();
+                setStreamingText(assistantFullText);
+                streamError = null; // 清除错误，因为我们成功获取了文本
+              } catch (cloneError) {
+                console.error('Error reading cloned response:', cloneError);
+              }
             }
           }
 
+          if (streamError) {
+            assistantFullText = `[小塞出了一点小状况: ${streamError}]`;
+            setStreamingText(assistantFullText);
+          }
+
           // 直接在回答末尾添加关于Agent模式的提醒，不需要专门判断
-          const reminderText = "\n\n---\n\n**提示**：开启Agent模式可以获得更专业的学术论文搜索和分析功能，提供更准确、更全面的研究支持。";
+          const reminderText = "\n\n---\n\n**提示**：开启Agent模式可以获得更专业的项目分析、代码生成和科研支持功能。";
           assistantFullText += reminderText;
           setStreamingText(assistantFullText);
 
@@ -519,94 +678,142 @@ export function ChatPanel({ onToggleHistory, isHistoryOpen }: ChatPanelProps) {
           }),
         });
 
-        if (!response.ok) throw new Error('Failed to fetch stream');
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Failed to fetch stream: ${errorText}`);
+        }
 
-        const reader = response.body?.getReader();
-        const decoder = new TextDecoder();
+        // 提前创建响应的克隆，用于错误处理
+        const clonedResponse = response.clone();
         let assistantFullText = '';
+        let streamError = null;
 
-        if (reader) {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            
-            const chunk = decoder.decode(value, { stream: true });
-            assistantFullText += chunk;
-            setStreamingText(assistantFullText);
-          }
-          
-          // 检查是否包含工具调用请求
-          try {
-            // 尝试解析响应，检查是否有工具调用
-            // 这里需要根据实际的模型响应格式进行调整
-            
-            // 检查是否包含runAgent相关的内容
-            if (assistantFullText.includes('runAgent')) {
-              // 尝试提取完整的工具调用JSON
-              let toolcallStr = '';
+        try {
+          const reader = response.body?.getReader();
+          const decoder = new TextDecoder();
+
+          if (reader) {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
               
-              // 检查是否包含Markdown代码块
-              const codeBlockMatch = assistantFullText.match(/```json[\s\S]*?```/);
-              if (codeBlockMatch) {
-                // 提取代码块内容
-                const codeBlock = codeBlockMatch[0];
-                // 移除代码块标记
-                toolcallStr = codeBlock.replace(/```json\s*/, '').replace(/\s*```/, '');
-                console.log('Found tool call in code block:', toolcallStr);
-              } else {
-                // 尝试解析整个响应为JSON
-                try {
-                  const parsedResponse = JSON.parse(assistantFullText);
-                  if (parsedResponse.name === 'runAgent' && parsedResponse.parameters) {
-                    toolcallStr = assistantFullText;
-                  }
-                } catch (e) {
-                  // 如果整个响应不是有效的JSON，尝试提取其中的JSON部分
-                  console.log('Whole response is not JSON, trying to extract JSON');
-                  
-                  // 找到JSON的开始和结束位置
-                  const startIndex = assistantFullText.indexOf('{');
-                  const endIndex = assistantFullText.lastIndexOf('}');
-                  
-                  if (startIndex !== -1 && endIndex !== -1) {
-                    toolcallStr = assistantFullText.substring(startIndex, endIndex + 1);
-                  }
+              const chunk = decoder.decode(value, { stream: true });
+              assistantFullText += chunk;
+              setStreamingText(assistantFullText);
+            }
+          }
+        } catch (error) {
+          console.error('Error reading stream:', error);
+          streamError = error instanceof Error ? error.message : '读取流数据失败';
+          
+          // 如果流读取失败，尝试使用克隆的响应获取文本
+          if (streamError.includes('Locked')) {
+            try {
+              assistantFullText = await clonedResponse.text();
+              setStreamingText(assistantFullText);
+              streamError = null; // 清除错误，因为我们成功获取了文本
+            } catch (cloneError) {
+              console.error('Error reading cloned response:', cloneError);
+            }
+          }
+        }
+
+        if (streamError) {
+          assistantFullText = `[小塞出了一点小状况: ${streamError}]`;
+          setStreamingText(assistantFullText);
+        }
+        
+        let toolcallHandled = false;
+        
+        // 检查是否包含工具调用请求
+        try {
+          // 尝试解析响应，检查是否有工具调用
+          // 这里需要根据实际的模型响应格式进行调整
+          
+          // 检查是否包含runAgent相关的内容
+          if (assistantFullText.includes('runAgent') && !toolcallHandled) {
+            // 尝试提取完整的工具调用JSON
+            let toolcallStr = '';
+            
+            // 检查是否包含Markdown代码块
+            const codeBlockMatch = assistantFullText.match(/```json[\s\S]*?```/);
+            if (codeBlockMatch) {
+              // 提取代码块内容
+              const codeBlock = codeBlockMatch[0];
+              // 移除代码块标记
+              toolcallStr = codeBlock.replace(/```json\s*/, '').replace(/\s*```/, '');
+              console.log('Found tool call in code block:', toolcallStr);
+            } else {
+              // 尝试解析整个响应为JSON
+              try {
+                const parsedResponse = JSON.parse(assistantFullText);
+                if (parsedResponse.name === 'runAgent' && parsedResponse.parameters) {
+                  toolcallStr = assistantFullText;
+                }
+              } catch (e) {
+                // 如果整个响应不是有效的JSON，尝试提取其中的JSON部分
+                console.log('Whole response is not JSON, trying to extract JSON');
+                
+                // 找到JSON的开始和结束位置
+                const startIndex = assistantFullText.indexOf('{');
+                const endIndex = assistantFullText.lastIndexOf('}');
+                
+                if (startIndex !== -1 && endIndex !== -1) {
+                  toolcallStr = assistantFullText.substring(startIndex, endIndex + 1);
                 }
               }
-              
-              if (toolcallStr) {
-                try {
-                  const toolcall = JSON.parse(toolcallStr);
-                  if (toolcall.name === 'runAgent') {
-                    console.log('Found tool call:', toolcall);
-                    
-                    // 调用工具API
-                    const toolResponse = await fetch('/api/chat/tool', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ toolcall }),
-                    });
-                    
-                    if (toolResponse.ok) {
-                      const toolResult = await toolResponse.json();
-                      if (toolResult.success) {
-                        console.log('Tool execution success:', toolResult);
-                        
-                        // 将工具执行结果发送给模型，获取最终响应
-                        const finalResponse = await fetch('/api/chat/stream', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            message: `工具执行结果：\n${JSON.stringify(toolResult.result, null, 2)}`,
-                            history: [...currentHistorySnapshot, userMsg, { role: 'assistant', content: assistantFullText }],
-                            knowledgeContext: ""
-                          })
-                        });
-                        
-                        if (finalResponse.ok) {
-                          const finalReader = finalResponse.body?.getReader();
-                          if (finalReader) {
-                            let finalText = '';
+            }
+            
+            if (toolcallStr) {
+              try {
+                const toolcall = JSON.parse(toolcallStr);
+                if (toolcall.name === 'runAgent') {
+                  console.log('Found tool call:', toolcall);
+                  toolcallHandled = true;
+                  
+                  // 调用工具API，添加超时机制
+                  const toolController = new AbortController();
+                  const toolTimeoutId = setTimeout(() => toolController.abort(), 60000);
+                  
+                  const toolResponse = await fetch('/api/chat/tool', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ toolcall }),
+                    signal: toolController.signal
+                  });
+                  
+                  clearTimeout(toolTimeoutId);
+                  
+                  if (toolResponse.ok) {
+                    const toolResult = await toolResponse.json();
+                    if (toolResult.success) {
+                      console.log('Tool execution success:', toolResult);
+                      
+                      // 将工具执行结果发送给模型，获取最终响应
+                      const finalController = new AbortController();
+                      const finalTimeoutId = setTimeout(() => finalController.abort(), 60000);
+                      
+                      const finalResponse = await fetch('/api/chat/stream', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          message: `工具执行结果：\n${JSON.stringify(toolResult.result, null, 2)}`,
+                          history: [...currentHistorySnapshot, userMsg, { role: 'assistant', content: assistantFullText }],
+                          knowledgeContext: ""
+                        }),
+                        signal: finalController.signal
+                      });
+                      
+                      clearTimeout(finalTimeoutId);
+                      
+                      if (finalResponse.ok) {
+                        // 提前创建响应的克隆，用于错误处理
+                        const clonedFinalResponse = finalResponse.clone();
+                        const finalReader = finalResponse.body?.getReader();
+                        if (finalReader) {
+                          const decoder = new TextDecoder();
+                          let finalText = '';
+                          try {
                             while (true) {
                               const { done, value } = await finalReader.read();
                               if (done) break;
@@ -616,51 +823,82 @@ export function ChatPanel({ onToggleHistory, isHistoryOpen }: ChatPanelProps) {
                             }
                             assistantFullText = finalText;
                             console.log('Final response received:', assistantFullText);
+                          } catch (error) {
+                            console.error('Error reading final response stream:', error);
+                            if (error instanceof Error && error.name === 'AbortError') {
+                              assistantFullText = '[小塞出了一点小状况: 获取最终响应超时，请稍后再试]';
+                            } else if (error instanceof Error && error.message.includes('Locked')) {
+                              try {
+                                finalText = await clonedFinalResponse.text();
+                                setStreamingText(finalText);
+                                assistantFullText = finalText;
+                              } catch (cloneError) {
+                                console.error('Error reading cloned final response:', cloneError);
+                                assistantFullText = '[小塞出了一点小状况: 读取响应失败]';
+                              }
+                            } else {
+                              assistantFullText = '[小塞出了一点小状况: 读取响应失败]';
+                            }
+                            setStreamingText(assistantFullText);
                           }
+                        } else {
+                          assistantFullText = '[小塞出了一点小状况: 无法读取响应流]';
+                          setStreamingText(assistantFullText);
                         }
                       } else {
-                        console.error('Tool execution failed:', toolResult.error);
+                        const errorText = await finalResponse.text();
+                        console.error('Final response error:', errorText);
+                        assistantFullText = '[小塞出了一点小状况: 获取最终响应失败]';
+                        setStreamingText(assistantFullText);
                       }
                     } else {
-                      console.error('Tool API request failed:', toolResponse.status);
+                      console.error('Tool execution failed:', toolResult.error);
+                      assistantFullText = `[小塞出了一点小状况: ${toolResult.error || '工具执行失败'}]`;
+                      setStreamingText(assistantFullText);
                     }
+                  } else {
+                    console.error('Tool API request failed:', toolResponse.status);
+                    assistantFullText = '[小塞出了一点小状况: 工具调用失败]';
+                    setStreamingText(assistantFullText);
                   }
-                } catch (e) {
-                  console.error('Error parsing tool call:', e);
                 }
+              } catch (e) {
+                console.error('Error parsing tool call:', e);
+                // 继续使用原始响应，不中断流程
               }
             }
-          } catch (e) {
-            console.error('Error checking for tool calls:', e);
           }
-
-          const finalMessages = [...updatedMessagesWithUser, { role: 'assistant', content: assistantFullText }];
-          
-          console.log('Generating title with message:', message);
-          console.log('Generating title with assistantFullText:', assistantFullText);
-          
-          let finalTitle = sessionData?.title || initialTitle;
-          console.log('Initial title:', finalTitle);
-          
-          // 总是生成新的聊天标题，包括历史聊天
-          const titleResult = await generateChatTitleAction(message, assistantFullText);
-          console.log('Title result:', titleResult);
-          
-          if (titleResult.success) {
-            finalTitle = titleResult.title;
-            console.log('Updated title:', finalTitle);
-          } else {
-            console.log('Title generation failed, using fallback:', finalTitle);
-          }
-
-          setDocumentNonBlocking(sessionDocRef, {
-            title: finalTitle,
-            messages: finalMessages,
-            updatedAt: new Date().toISOString()
-          }, { merge: true });
-          
-          console.log('Title updated in Firestore:', finalTitle);
+        } catch (e) {
+          console.error('Error checking for tool calls:', e);
+          // 继续使用原始响应，不中断流程
         }
+
+        const finalMessages = [...updatedMessagesWithUser, { role: 'assistant', content: assistantFullText }];
+        
+        console.log('Generating title with message:', message);
+        console.log('Generating title with assistantFullText:', assistantFullText);
+        
+        let finalTitle = sessionData?.title || initialTitle;
+        console.log('Initial title:', finalTitle);
+        
+        // 总是生成新的聊天标题，包括历史聊天
+        const titleResult = await generateChatTitleAction(message, assistantFullText);
+        console.log('Title result:', titleResult);
+        
+        if (titleResult.success) {
+          finalTitle = titleResult.title;
+          console.log('Updated title:', finalTitle);
+        } else {
+          console.log('Title generation failed, using fallback:', finalTitle);
+        }
+
+        setDocumentNonBlocking(sessionDocRef, {
+          title: finalTitle,
+          messages: finalMessages,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+        
+        console.log('Title updated in Firestore:', finalTitle);
       }
     } catch (error) {
       console.error('Error streaming chat:', error);
@@ -820,18 +1058,18 @@ export function ChatPanel({ onToggleHistory, isHistoryOpen }: ChatPanelProps) {
                     </div>
                   )}
                   <div className={cn(
-                      "rounded-2xl md:rounded-3xl px-4 py-3 md:px-6 md:py-4 max-w-[90%] md:max-w-[85%] shadow-sm leading-relaxed text-sm md:text-base",
+                      "px-4 py-3 md:px-6 md:py-4 max-w-[90%] md:max-w-[85%] leading-relaxed text-sm md:text-base",
                       message.role === 'user'
-                        ? 'bg-gradient-to-r from-[#5F6AD1] to-[#C181F9] text-white rounded-tr-none'
-                        : 'bg-card border rounded-tl-none text-slate-800 dark:text-slate-200'
+                        ? 'bg-gradient-to-r from-[#5F6AD1] to-[#C181F9] text-white rounded-2xl md:rounded-3xl rounded-tr-none shadow-sm'
+                        : 'text-slate-800 dark:text-slate-200'
                     )}
                   >
                     <div className={cn(
-                      "prose prose-sm dark:prose-invert max-w-none", 
+                      "prose prose-sm dark:prose-invert max-w-none prose-headings:text-indigo-600 dark:prose-headings:text-indigo-400 prose-strong:text-indigo-600 dark:prose-strong:text-indigo-400 prose-hr:border-indigo-200 dark:prose-hr:border-indigo-800", 
                       message.role === 'user' ? 'prose-invert !text-white' : ''
                     )}>
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {message.content}
+                        {typeof message.content === 'string' ? message.content : JSON.stringify(message.content)}
                       </ReactMarkdown>
                     </div>
                   </div>
@@ -857,11 +1095,11 @@ export function ChatPanel({ onToggleHistory, isHistoryOpen }: ChatPanelProps) {
                   <div className="w-8 h-8 md:w-10 md:h-10 rounded-full border bg-gradient-to-br from-[#5F6AD1] to-[#C181F9] flex items-center justify-center text-white text-[10px] md:text-xs font-bold shrink-0 shadow-lg">
                     {">_o"}
                   </div>
-                  <div className="rounded-2xl md:rounded-3xl px-4 py-3 md:px-6 md:py-4 max-w-[90%] md:max-w-[85%] bg-card border rounded-tl-none shadow-sm min-h-[50px] md:min-h-[60px]">
+                  <div className="px-4 py-3 md:px-6 md:py-4 max-w-[90%] md:max-w-[85%] min-h-[50px] md:min-h-[60px]">
                     {streamingText ? (
-                      <div className="prose prose-sm max-w-none text-slate-800 dark:text-slate-200 text-sm md:text-base">
+                      <div className="prose prose-sm dark:prose-invert max-w-none text-slate-800 dark:text-slate-200 text-sm md:text-base prose-headings:text-indigo-600 dark:prose-headings:text-indigo-400 prose-strong:text-indigo-600 dark:prose-strong:text-indigo-400 prose-hr:border-indigo-200 dark:prose-hr:border-indigo-800">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {streamingText}
+                          {typeof streamingText === 'string' ? streamingText : JSON.stringify(streamingText)}
                         </ReactMarkdown>
                       </div>
                     ) : (

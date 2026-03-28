@@ -2,6 +2,7 @@
 'use client';
 
 import { useState, useEffect, useTransition } from 'react';
+import { diffLines } from 'diff';
 import type { Project, Task, AnalysisResult } from '@/lib/types';
 import { CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { CreateTaskDialog } from "@/components/create-task-dialog";
@@ -49,6 +50,9 @@ export function ProjectView({ project, children }: { project: Project, children:
     const [isManageMode, setIsBatchMode] = useState(false);
     const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
     const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+    const [showFixDiff, setShowFixDiff] = useState(false);
+    const [fixDiffResult, setFixDiffResult] = useState<any[]>([]);
+    const [originalMarkdown, setOriginalMarkdown] = useState('');
 
     const tasksQuery = useMemoFirebase(() => {
         if (!firestore || !user?.uid || !project.id) return null;
@@ -105,6 +109,10 @@ export function ProjectView({ project, children }: { project: Project, children:
 
         setIsAiLoading(true);
         try {
+            // 保存原始内容
+            const originalContent = project.planningMarkdown || '';
+            setOriginalMarkdown(originalContent);
+            
             const errorsText = activeErrors.map(e => `- Error in ${e.step}: ${e.explanation}`).join('\n');
             const warningsText = activeWarnings.map(w => `- Warning in ${w.step}: ${w.explanation}`).join('\n');
             
@@ -131,6 +139,11 @@ export function ProjectView({ project, children }: { project: Project, children:
                     if (done) break;
                     accumulatedMarkdown += decoder.decode(value, { stream: true });
                 }
+                
+                // 生成差异
+                const diff = diffLines(originalContent, accumulatedMarkdown);
+                setFixDiffResult(diff);
+                setShowFixDiff(true);
                 
                 const projectRef = doc(firestore, 'users', user.uid, 'projects', project.id);
                 updateDocumentNonBlocking(projectRef, { 
@@ -446,6 +459,47 @@ export function ProjectView({ project, children }: { project: Project, children:
                             </AlertDescription>
                         </Alert>
                     ))}
+                    
+                    {/* Fix Issues 差异对比视图 */}
+                    {showFixDiff && (
+                        <div className="mt-6 border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900">
+                            <div className="flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-300 dark:border-gray-700 rounded-t-lg">
+                                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Fix Issues 修改对比</span>
+                                <button
+                                    onClick={() => setShowFixDiff(false)}
+                                    className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+                            <div className="max-h-[300px] overflow-auto p-4 space-y-1">
+                                {fixDiffResult.map((part, index) => {
+                                    if (part.added) {
+                                        return (
+                                            <div key={index} className="bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 px-2 py-1 rounded text-sm font-mono">
+                                                <span className="inline-block w-4 text-green-600 dark:text-green-400 font-bold">+</span>
+                                                {part.value}
+                                            </div>
+                                        );
+                                    } else if (part.removed) {
+                                        return (
+                                            <div key={index} className="bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 px-2 py-1 rounded text-sm font-mono line-through">
+                                                <span className="inline-block w-4 text-red-600 dark:text-red-400 font-bold">-</span>
+                                                {part.value}
+                                            </div>
+                                        );
+                                    } else {
+                                        return (
+                                            <div key={index} className="text-gray-700 dark:text-gray-300 px-2 py-1 text-sm font-mono">
+                                                <span className="inline-block w-4"> </span>
+                                                {part.value}
+                                            </div>
+                                        );
+                                    }
+                                })}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

@@ -2,6 +2,7 @@
 
 import { ai, getAiParams } from '@/ai/genkit';
 import { z } from 'genkit';
+import { SkillInput } from './types';
 
 const CodeGenerationInputSchema = z.object({
   taskDescription: z.string().describe('任务描述'),
@@ -11,7 +12,7 @@ const CodeGenerationInputSchema = z.object({
   existingCode: z.string().optional().describe('现有代码'),
 });
 
-type CodeGenerationInput = z.infer<typeof CodeGenerationInputSchema>;
+type CodeGenerationInput = z.infer<typeof CodeGenerationInputSchema> & SkillInput;
 
 const CodeGenerationOutputSchema = z.object({
   code: z.string().describe('生成的代码'),
@@ -22,10 +23,33 @@ const CodeGenerationOutputSchema = z.object({
 
 type CodeGenerationOutput = z.infer<typeof CodeGenerationOutputSchema>;
 
-/**
- * 代码生成Agent
- * 用于根据任务描述生成代码
- */
+async function generateWithCustomModel(config: any, system: string, prompt: string): Promise<string> {
+  const response = await fetch(`${config.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: prompt },
+      ],
+      temperature: config.temperature || 0.7,
+      max_tokens: config.max_tokens || 8192,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Custom model API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
 export async function generateCode(input: CodeGenerationInput): Promise<CodeGenerationOutput> {
   return codeGenerationFlow(input);
 }
@@ -56,12 +80,21 @@ const codeGenerationFlow = ai.defineFlow(
 请输出完整的代码，并提供代码解释、依赖项和使用说明。
 `;
 
-      const { text } = await ai.generate({
-        model,
-        config: { ...config, temperature: 0.7 },
-        system: "你是一个专业的代码生成Agent，擅长根据需求生成高质量、可运行的代码。请提供完整的代码实现，并确保代码符合最佳实践和规范。",
-        prompt: prompt,
-      });
+      const systemPrompt = "你是一个专业的代码生成Agent，擅长根据需求生成高质量、可运行的代码。请提供完整的代码实现，并确保代码符合最佳实践和规范。";
+
+      let text: string;
+      if (model === 'custom/model') {
+        console.log('[CodeGeneration] Using custom model for generation');
+        text = await generateWithCustomModel(config, systemPrompt, prompt);
+      } else {
+        const { text: generatedText } = await ai.generate({
+          model,
+          config: { ...config, temperature: 0.7 },
+          system: systemPrompt,
+          prompt: prompt,
+        });
+        text = generatedText;
+      }
 
       // 解析生成的内容
       let code = '';

@@ -29,25 +29,41 @@ export async function getAiParams() {
   if (selectedModel === 'custom/model' || selectedModel.startsWith('deepseek/')) {
     const encryptedApiKey = cookieStore.get('custom-api-key')?.value || cookieStore.get('deepseek-api-key')?.value;
     const baseUrl = cookieStore.get('custom-base-url')?.value || 'https://api.deepseek.com/v1';
-    const modelId = cookieStore.get('custom-model-id')?.value || selectedModel.replace('deepseek/', '');
+    let modelId = cookieStore.get('custom-model-id')?.value;
+    
+    // 处理DeepSeek模型的modelId
+    if (!modelId && selectedModel.startsWith('deepseek/')) {
+      const modelSuffix = selectedModel.replace('deepseek/', '');
+      if (modelSuffix === 'chat') {
+        modelId = 'deepseek-chat';
+      } else if (modelSuffix === 'reasoner') {
+        modelId = 'deepseek-reasoner';
+      } else {
+        modelId = modelSuffix;
+      }
+    }
 
     if (encryptedApiKey && modelId) {
-      // 解密API Key
-      const apiKey = decrypt(encryptedApiKey);
-      // 对于自定义模型或DeepSeek模型，我们需要使用不同的处理方式
-      console.log('Using custom model configuration:', { modelId, baseUrl });
-      return {
-        model: 'custom/model', // 使用自定义模型标识
-        config: {
-          apiKey,
-          baseUrl: baseUrl || 'https://api.deepseek.com/v1',
-          model: modelId,
-          temperature: 0.7,
-          max_tokens: 8192 // 增加最大输出token数
-        }
-      };
+      try {
+        // 解密API Key
+        const apiKey = decrypt(encryptedApiKey);
+        // 对于自定义模型或DeepSeek模型，我们需要使用不同的处理方式
+        console.log('Using custom model configuration:', { modelId, baseUrl });
+        return {
+          model: 'custom/model', // 使用自定义模型标识
+          config: {
+            apiKey,
+            baseUrl: baseUrl || 'https://api.deepseek.com/v1',
+            model: modelId,
+            temperature: 0.7,
+            max_tokens: 8192 // 增加最大输出token数
+          }
+        };
+      } catch (decryptError) {
+        throw new Error('Failed to decrypt API Key. Please reconfigure your settings.');
+      }
     } else {
-      throw new Error('Custom model configuration is incomplete. Please check your settings.');
+      throw new Error('Custom model configuration is incomplete. Please check your API Key and model settings.');
     }
   }
 

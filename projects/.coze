@@ -1,0 +1,6 @@
+[skill]
+  skill_package = "research-code-manager.skill"
+  name = "research-code-manager"
+  description = "科研代码全流程管理工具；当用户需要设计技术路线、选择算法方案、组织代码架构或分析现有代码结构时使用"
+  project_name = "VibeSci"
+  project_description = "科研代码全流程管理工具"

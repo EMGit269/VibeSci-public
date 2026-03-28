@@ -2,6 +2,7 @@
 
 import { ai, getAiParams } from '@/ai/genkit';
 import { z } from 'genkit';
+import { SkillInput } from './types';
 
 const ProjectAnalysisInputSchema = z.object({
   projectDescription: z.string().describe('项目描述'),
@@ -9,7 +10,7 @@ const ProjectAnalysisInputSchema = z.object({
   requirements: z.string().optional().describe('项目需求'),
 });
 
-type ProjectAnalysisInput = z.infer<typeof ProjectAnalysisInputSchema>;
+type ProjectAnalysisInput = z.infer<typeof ProjectAnalysisInputSchema> & SkillInput;
 
 const ProjectAnalysisOutputSchema = z.object({
   projectStructure: z.string().describe('项目结构分析'),
@@ -21,10 +22,33 @@ const ProjectAnalysisOutputSchema = z.object({
 
 type ProjectAnalysisOutput = z.infer<typeof ProjectAnalysisOutputSchema>;
 
-/**
- * 项目分析Agent
- * 用于分析项目需求和结构，生成实施方案
- */
+async function generateWithCustomModel(config: any, system: string, prompt: string): Promise<string> {
+  const response = await fetch(`${config.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: prompt },
+      ],
+      temperature: config.temperature || 0.7,
+      max_tokens: config.max_tokens || 8192,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Custom model API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
 export async function analyzeProject(input: ProjectAnalysisInput): Promise<ProjectAnalysisOutput> {
   return projectAnalysisFlow(input);
 }
@@ -56,12 +80,22 @@ const projectAnalysisFlow = ai.defineFlow(
 5. 潜在挑战列表
 `;
 
-      const { text } = await ai.generate({
-        model,
-        config: { ...config, temperature: 0.7 },
-        system: "你是一个专业的项目分析Agent，擅长分析项目需求、设计技术方案和制定实施计划。请基于提供的项目信息，提供详细、专业的项目分析报告。",
-        prompt: prompt,
-      });
+      const systemPrompt = "你是一个专业的项目分析Agent，擅长分析项目需求、设计技术方案和制定实施计划。请基于提供的项目信息，提供详细、专业的项目分析报告。";
+
+      let text: string;
+      
+      if (model === 'custom/model') {
+        console.log('[ProjectAnalysis] Using custom model for generation');
+        text = await generateWithCustomModel(config, systemPrompt, prompt);
+      } else {
+        const { text: generatedText } = await ai.generate({
+          model,
+          config: { ...config, temperature: 0.7 },
+          system: systemPrompt,
+          prompt: prompt,
+        });
+        text = generatedText;
+      }
 
       // 解析生成的内容
       const lines = text.split('\n');

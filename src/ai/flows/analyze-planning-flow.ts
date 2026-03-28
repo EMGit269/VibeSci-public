@@ -22,6 +22,86 @@ const AnalyzePlanningOutputSchema = z.object({
 });
 export type AnalyzePlanningOutput = z.infer<typeof AnalyzePlanningOutputSchema>;
 
+async function analyzeWithCustomModel(config: any, markdown: string): Promise<AnalyzePlanningOutput> {
+  const prompt = `你是一位专业的科学审计师和研究架构师。你的目标是分析研究计划并识别科学路线图中的潜在问题。
+
+严格聚焦：
+- 专注于研究路线的逻辑。（例如：任务B依赖于任务A但安排在任务A之前？方法是否科学合理地解决问题？）
+- 忽略低级别代码细节或语法。不要陷入实现片段的细节中。
+- 错误标准：只标记会使研究进展无效的重大逻辑漏洞（例如：在定义任何数据获取方法之前分析数据）。
+- 警告标准：如果问题较小，或只是代表一个困难但可能的步骤，则将其标记为警告。
+- 保持解释简短明了：专注于核心问题，避免不必要的细节。
+- 直接切入主题：直截了当地指出问题，不要有介绍或冗长解释。
+
+输入研究计划：
+"""
+${markdown}
+"""
+
+请返回结构化的JSON响应，将问题分类为errors和warnings。如果没有发现问题，返回空数组。
+
+JSON输出格式：
+{
+  "errors": [
+    {
+      "step": "任务/方法名称",
+      "explanation": "简短、聚焦的错误解释"
+    }
+  ],
+  "warnings": [
+    {
+      "step": "任务/方法名称",
+      "explanation": "简短、聚焦的警告解释"
+    }
+  ]
+}`;
+
+  const response = await fetch(`${config.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages: [
+        { role: 'system', content: 'You are an expert scientific auditor and research architect.' },
+        { role: 'user', content: prompt },
+      ],
+      temperature: config.temperature || 0.7,
+      max_tokens: config.max_tokens || 8192,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Custom model API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices[0]?.message?.content;
+  
+  if (!content) {
+    throw new Error('No response from custom model');
+  }
+
+  // 提取 JSON 部分
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('No JSON found in response');
+  }
+
+  try {
+    const result = JSON.parse(jsonMatch[0]);
+    return {
+      errors: result.errors || [],
+      warnings: result.warnings || []
+    };
+  } catch (e) {
+    throw new Error('Invalid JSON response');
+  }
+}
+
 export async function analyzePlanning(input: AnalyzePlanningInput): Promise<AnalyzePlanningOutput> {
   return analyzePlanningFlow(input);
 }
@@ -30,20 +110,22 @@ const analyzePlanningPrompt = ai.definePrompt({
   name: 'analyzePlanningPrompt',
   input: { schema: AnalyzePlanningInputSchema },
   output: { schema: AnalyzePlanningOutputSchema },
-  prompt: `You are an expert scientific auditor and research architect. Your goal is to analyze a research plan and identify potential failures in the scientific roadmap.
+  prompt: `你是一位专业的科学审计师和研究架构师。你的目标是分析研究计划并识别科学路线图中的潜在问题。
 
-STRICT FOCUS:
-- FOCUS on the LOGIC of the research route. (e.g., Is Task B dependent on Task A but scheduled before it? Is the Method scientifically sound for the Problem?)
-- IGNORE low-level code details or syntax. Do not get bogged down in implementation snippets.
-- CRITERIA FOR ERRORS: Only flag major logical gaps that would invalidate the research progression (e.g., analyzing data before any acquisition method is defined).
-- CRITERIA FOR WARNINGS: If a problem is minor, or simply represents a difficult but possible step, flag it as a Warning.
+严格聚焦：
+- 专注于研究路线的逻辑。（例如：任务B依赖于任务A但安排在任务A之前？方法是否科学合理地解决问题？）
+- 忽略低级别代码细节或语法。不要陷入实现片段的细节中。
+- 错误标准：只标记会使研究进展无效的重大逻辑漏洞（例如：在定义任何数据获取方法之前分析数据）。
+- 警告标准：如果问题较小，或只是代表一个困难但可能的步骤，则将其标记为警告。
+- 保持解释简短明了：专注于核心问题，避免不必要的细节。
+- 直接切入主题：直截了当地指出问题，不要有介绍或冗长解释。
 
-Input Research Plan:
+输入研究计划：
 """
 {{{markdown}}}
 """
 
-Please return a structured JSON response categorizing the issues into errors and warnings. If no issues are found, return empty arrays.`,
+请返回结构化的JSON响应，将问题分类为errors和warnings。如果没有发现问题，返回空数组。`, 
 });
 
 const analyzePlanningFlow = ai.defineFlow(
@@ -54,7 +136,21 @@ const analyzePlanningFlow = ai.defineFlow(
   },
   async (input) => {
     const { model, config } = await getAiParams();
-    const { output } = await analyzePlanningPrompt(input, { model, config });
-    return output!;
+    
+    if (model === 'custom/model') {
+      console.log('[Analyze Planning] Using custom model');
+      return await analyzeWithCustomModel(config, input.markdown);
+    } else {
+      console.log('[Analyze Planning] Using Genkit');
+      try {
+        const { output } = await analyzePlanningPrompt(input, { model, config });
+        return output!;
+      } catch (e) {
+        console.error('Genkit analysis error:', e);
+        // 回退到自定义模型
+        console.log('[Analyze Planning] Falling back to custom model');
+        return await analyzeWithCustomModel(config, input.markdown);
+      }
+    }
   }
 );

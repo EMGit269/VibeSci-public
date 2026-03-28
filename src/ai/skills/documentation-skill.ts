@@ -2,6 +2,7 @@
 
 import { ai, getAiParams } from '@/ai/genkit';
 import { z } from 'genkit';
+import { SkillInput } from './types';
 
 const DocumentationInputSchema = z.object({
   projectName: z.string().describe('项目名称'),
@@ -11,7 +12,7 @@ const DocumentationInputSchema = z.object({
   audience: z.string().optional().describe('目标受众'),
 });
 
-type DocumentationInput = z.infer<typeof DocumentationInputSchema>;
+type DocumentationInput = z.infer<typeof DocumentationInputSchema> & SkillInput;
 
 const DocumentationOutputSchema = z.object({
   readme: z.string().describe('README文档'),
@@ -23,10 +24,33 @@ const DocumentationOutputSchema = z.object({
 
 type DocumentationOutput = z.infer<typeof DocumentationOutputSchema>;
 
-/**
- * 文档生成Agent
- * 用于自动生成项目文档
- */
+async function generateWithCustomModel(config: any, system: string, prompt: string): Promise<string> {
+  const response = await fetch(`${config.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: prompt },
+      ],
+      temperature: config.temperature || 0.7,
+      max_tokens: config.max_tokens || 8192,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Custom model API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
 export async function generateDocumentation(input: DocumentationInput): Promise<DocumentationOutput> {
   return documentationFlow(input);
 }
@@ -62,12 +86,21 @@ const documentationFlow = ai.defineFlow(
 5. 故障排除：常见问题及解决方案
 `;
 
-      const { text } = await ai.generate({
-        model,
-        config: { ...config, temperature: 0.7 },
-        system: "你是一个专业的文档生成Agent，擅长为项目生成清晰、详细、专业的文档。请提供完整的文档内容，确保文档结构清晰，内容全面。",
-        prompt: prompt,
-      });
+      const systemPrompt = "你是一个专业的文档生成Agent，擅长为项目生成清晰、详细、专业的文档。请提供完整的文档内容，确保文档结构清晰，内容全面。";
+
+      let text: string;
+      if (model === 'custom/model') {
+        console.log('[Documentation] Using custom model for generation');
+        text = await generateWithCustomModel(config, systemPrompt, prompt);
+      } else {
+        const { text: generatedText } = await ai.generate({
+          model,
+          config: { ...config, temperature: 0.7 },
+          system: systemPrompt,
+          prompt: prompt,
+        });
+        text = generatedText;
+      }
 
       // 解析生成的内容
       let readme = '';

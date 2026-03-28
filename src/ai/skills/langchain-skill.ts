@@ -1,14 +1,18 @@
 import { ChatPromptTemplate } from '@langchain/core/prompts';
+import { SkillInput, SkillOutput } from './types';
 
 // 运行LangChain智能体
-export async function runLangChainAgent(input: string) {
+export async function runLangChainAgent(input: SkillInput): Promise<SkillOutput> {
   try {
+    // 从SkillInput中获取输入内容
+    const inputContent = typeof input === 'string' ? input : (input.input || input.message || JSON.stringify(input));
+    
     // 检查是否有OpenAI API密钥
     if (!process.env.OPENAI_API_KEY) {
       // 如果没有OpenAI API密钥，使用默认实现
       return {
         success: true,
-        data: `我理解您想做一个用momepy进行城市形态聚类的项目。以下是一些关键信息：\n\n## 项目概述\n使用momepy库进行城市形态聚类分析，探索城市空间结构的特征和模式。\n\n## 技术栈\n- Python 3.8+\n- momepy\n- geopandas\n- scikit-learn\n- matplotlib\n\n## 分析步骤\n1. 数据预处理和清洗\n2. 计算形态指标（面积、周长、紧凑度等）\n3. 应用聚类算法（K-means、层次聚类等）\n4. 结果可视化和解读\n5. 生成分析报告\n\n## 注意事项\n- 需要准备城市边界或街区多边形数据（Shapefile或GeoJSON格式）\n- 建议使用Jupyter Notebook进行交互式分析\n- 可以考虑使用并行计算来提高处理大型数据集的效率`,
+        data: `我理解您的请求：${inputContent}。以下是一些关键信息：\n\n## 项目概述\n这是一个基于LangChain的智能体响应，用于处理您的请求。\n\n## 技术栈\n- LangChain\n- OpenAI API\n- 自然语言处理\n\n## 注意事项\n- 请确保您的请求清晰明确\n- 对于复杂问题，可能需要提供更多上下文信息\n- 系统会根据您的输入生成相应的响应`,
       };
     }
 
@@ -31,7 +35,7 @@ export async function runLangChainAgent(input: string) {
     const chain = prompt.pipe(llm);
 
     // 执行链
-    const result = await chain.invoke({ input });
+    const result = await chain.invoke({ input: inputContent });
 
     return {
       success: true,

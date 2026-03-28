@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { initializeFirebaseServer } from '@/firebase/server';
 import { collection, addDoc } from 'firebase/firestore';
+import { SkillInput } from './types';
 
 // 项目创建输入模式
 export const ProjectCreationInputSchema = z.object({
@@ -46,7 +47,7 @@ export const ProjectCreationOutputSchema = z.object({
   )
 });
 
-export type ProjectCreationInput = z.infer<typeof ProjectCreationInputSchema>;
+export type ProjectCreationInput = z.infer<typeof ProjectCreationInputSchema> & SkillInput;
 export type ProjectCreationOutput = z.infer<typeof ProjectCreationOutputSchema>;
 
 // 项目创建Agent
